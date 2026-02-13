@@ -2,8 +2,8 @@
 # Run this script as Administrator
 
 param(
-    [string]$ServiceName = "PCStatsMonitoringService",
-    [string]$InstallPath = "C:\Services\PCStatsService",
+    [string]$ServiceName = "Slov89.PCStats.Service",
+    [string]$InstallPath = "C:\Services\Slov89.PCStats.Service",
     [switch]$RemoveFiles
 )
 

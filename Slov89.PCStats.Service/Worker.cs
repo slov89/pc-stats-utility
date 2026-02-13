@@ -156,6 +156,7 @@ public class Worker : BackgroundService
         }
 
         // Get and store CPU temperatures
+        _logger.LogDebug("Attempting to read CPU temperatures from HWiNFO...");
         var temperatures = await _hwinfoService.GetCpuTemperaturesAsync();
         if (temperatures != null)
         {
@@ -174,6 +175,10 @@ public class Worker : BackgroundService
                 {
                     _logger.LogInformation("CPU Temperatures: {Temps}", string.Join(", ", tempReadings));
                 }
+                else
+                {
+                    _logger.LogWarning("Temperature object returned but no values were set");
+                }
             }
             catch (Exception ex)
             {
@@ -182,7 +187,7 @@ public class Worker : BackgroundService
         }
         else
         {
-            _logger.LogDebug("No CPU temperature data available");
+            _logger.LogInformation("No CPU temperature data available from HWiNFO");
         }
     }
 

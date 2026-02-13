@@ -2,8 +2,8 @@
 # Run this script as Administrator
 
 param(
-    [string]$InstallPath = "C:\Services\PCStatsService",
-    [string]$ServiceName = "PCStatsMonitoringService"
+    [string]$InstallPath = "C:\Services\Slov89.PCStats.Service",
+    [string]$ServiceName = "Slov89.PCStats.Service"
 )
 
 # Check if running as administrator
@@ -14,6 +14,14 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 }
 
 Write-Host "Installing PC Stats Monitoring Service..." -ForegroundColor Cyan
+
+# Check if service already exists and stop it before building
+$existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($existingService) {
+    Write-Host "Service already exists. Stopping..." -ForegroundColor Yellow
+    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
 
 # Build and publish the service
 Write-Host "Building service..." -ForegroundColor Yellow
@@ -27,18 +35,16 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Service built successfully" -ForegroundColor Green
 
-# Check if service already exists
-$existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+# Remove existing service after successful build
 if ($existingService) {
-    Write-Host "Service already exists. Stopping and removing..." -ForegroundColor Yellow
-    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+    Write-Host "Removing old service..." -ForegroundColor Yellow
     sc.exe delete $ServiceName
     Start-Sleep -Seconds 2
 }
 
 # Create the service
 Write-Host "Creating Windows service..." -ForegroundColor Yellow
-$binaryPath = Join-Path $InstallPath "PCStatsService.exe"
+$binaryPath = Join-Path $InstallPath "Slov89.PCStats.Service.exe"
 sc.exe create $ServiceName binPath= $binaryPath start= auto
 
 if ($LASTEXITCODE -ne 0) {
