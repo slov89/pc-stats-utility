@@ -1,0 +1,188 @@
+using Microsoft.Extensions.Logging;
+using Npgsql;
+using Slov89.PCStats.Models;
+
+namespace Slov89.PCStats.Data;
+
+public class MetricsService : IMetricsService
+{
+    private readonly string _connectionString;
+    private readonly ILogger<MetricsService> _logger;
+
+    public MetricsService(ILogger<MetricsService> logger)
+    {
+        _connectionString = Environment.GetEnvironmentVariable("slov89_pc_stats_utility_pg") 
+            ?? throw new InvalidOperationException("slov89_pc_stats_utility_pg environment variable not set");
+        _logger = logger;
+    }
+
+    public async Task<List<Snapshot>> GetSnapshotsAsync(DateTime startTime, DateTime endTime)
+    {
+        var snapshots = new List<Snapshot>();
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+                SELECT snapshot_id, snapshot_timestamp, total_cpu_usage, 
+                       total_memory_usage_mb, total_available_memory_mb
+                FROM snapshots
+                WHERE snapshot_timestamp >= @startTime 
+                  AND snapshot_timestamp <= @endTime
+                ORDER BY snapshot_timestamp ASC";
+
+            await using var command = new NpgsqlCommand(sql, connection);
+            command.Parameters.AddWithValue("startTime", startTime);
+            command.Parameters.AddWithValue("endTime", endTime);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                snapshots.Add(new Snapshot
+                {
+                    SnapshotId = reader.GetInt64(0),
+                    SnapshotTimestamp = reader.GetDateTime(1),
+                    TotalCpuUsage = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                    TotalMemoryUsageMb = reader.IsDBNull(3) ? null : reader.GetInt64(3),
+                    TotalAvailableMemoryMb = reader.IsDBNull(4) ? null : reader.GetInt64(4)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching snapshots from {StartTime} to {EndTime}", startTime, endTime);
+        }
+
+        return snapshots;
+    }
+
+    public async Task<List<CpuTemperature>> GetCpuTemperaturesAsync(DateTime startTime, DateTime endTime)
+    {
+        var temperatures = new List<CpuTemperature>();
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+                SELECT t.temp_id, t.snapshot_id, t.cpu_tctl_tdie, t.cpu_die_average,
+                       t.cpu_ccd1_tdie, t.cpu_ccd2_tdie, t.thermal_limit_percent, 
+                       t.thermal_throttling
+                FROM cpu_temperatures t
+                INNER JOIN snapshots s ON t.snapshot_id = s.snapshot_id
+                WHERE s.snapshot_timestamp >= @startTime 
+                  AND s.snapshot_timestamp <= @endTime
+                ORDER BY s.snapshot_timestamp ASC";
+
+            await using var command = new NpgsqlCommand(sql, connection);
+            command.Parameters.AddWithValue("startTime", startTime);
+            command.Parameters.AddWithValue("endTime", endTime);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                temperatures.Add(new CpuTemperature
+                {
+                    TempId = reader.GetInt64(0),
+                    SnapshotId = reader.GetInt64(1),
+                    CpuTctlTdie = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                    CpuDieAverage = reader.IsDBNull(3) ? null : reader.GetDecimal(3),
+                    CpuCcd1Tdie = reader.IsDBNull(4) ? null : reader.GetDecimal(4),
+                    CpuCcd2Tdie = reader.IsDBNull(5) ? null : reader.GetDecimal(5),
+                    ThermalLimitPercent = reader.IsDBNull(6) ? null : reader.GetDecimal(6),
+                    ThermalThrottling = reader.IsDBNull(7) ? null : reader.GetBoolean(7)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching CPU temperatures from {StartTime} to {EndTime}", startTime, endTime);
+        }
+
+        return temperatures;
+    }
+
+    public async Task<Dictionary<string, List<(DateTime timestamp, decimal cpuUsage, long memoryMb)>>> GetTopProcessesAsync(
+        DateTime startTime, DateTime endTime, int topCount = 5)
+    {
+        var processMetrics = new Dictionary<string, List<(DateTime, decimal, long)>>();
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            // Get top processes by average CPU usage
+            const string topProcessesSql = @"
+                SELECT p.process_name, 
+                       AVG(ps.cpu_usage) as avg_cpu
+                FROM process_snapshots ps
+                INNER JOIN processes p ON ps.process_id = p.process_id
+                INNER JOIN snapshots s ON ps.snapshot_id = s.snapshot_id
+                WHERE s.snapshot_timestamp >= @startTime 
+                  AND s.snapshot_timestamp <= @endTime
+                  AND ps.cpu_usage IS NOT NULL
+                GROUP BY p.process_name
+                ORDER BY avg_cpu DESC
+                LIMIT @topCount";
+
+            await using var topCommand = new NpgsqlCommand(topProcessesSql, connection);
+            topCommand.Parameters.AddWithValue("startTime", startTime);
+            topCommand.Parameters.AddWithValue("endTime", endTime);
+            topCommand.Parameters.AddWithValue("topCount", topCount);
+
+            var topProcessNames = new List<string>();
+            await using (var reader = await topCommand.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    topProcessNames.Add(reader.GetString(0));
+                }
+            }
+
+            // Get time series data for each top process
+            foreach (var processName in topProcessNames)
+            {
+                const string metricsSql = @"
+                    SELECT s.snapshot_timestamp,
+                           COALESCE(ps.cpu_usage, 0) as cpu_usage,
+                           COALESCE(ps.memory_usage_mb, 0) as memory_mb
+                    FROM snapshots s
+                    LEFT JOIN process_snapshots ps ON s.snapshot_id = ps.snapshot_id
+                    LEFT JOIN processes p ON ps.process_id = p.process_id AND p.process_name = @processName
+                    WHERE s.snapshot_timestamp >= @startTime 
+                      AND s.snapshot_timestamp <= @endTime
+                    ORDER BY s.snapshot_timestamp ASC";
+
+                await using var metricsCommand = new NpgsqlCommand(metricsSql, connection);
+                metricsCommand.Parameters.AddWithValue("processName", processName);
+                metricsCommand.Parameters.AddWithValue("startTime", startTime);
+                metricsCommand.Parameters.AddWithValue("endTime", endTime);
+
+                var metrics = new List<(DateTime, decimal, long)>();
+                await using (var reader = await metricsCommand.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        metrics.Add((
+                            reader.GetDateTime(0),
+                            reader.GetDecimal(1),
+                            reader.GetInt64(2)
+                        ));
+                    }
+                }
+
+                processMetrics[processName] = metrics;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching top process metrics from {StartTime} to {EndTime}", startTime, endTime);
+        }
+
+        return processMetrics;
+    }
+}

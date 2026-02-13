@@ -1,607 +1,264 @@
-# PC Stats Monitoring Service
+# Slov89 PC Stats Monitoring
 
-A .NET 10 Windows service that monitors system performance and logs data to PostgreSQL database every 5 seconds.
+A comprehensive .NET 10 monitoring solution that collects Windows system performance metrics every 5 seconds and provides a real-time web dashboard for visualization.
 
 ## Overview
 
-This service runs in the background on Windows and collects comprehensive system metrics:
-- All running processes with smart filtering
-- CPU, memory, and VRAM usage per process
-- CPU temperature sensors (via HWiNFO)
-- System-level metrics
+This solution consists of four main components:
+
+1. **[Slov89.PCStats.Models](Slov89.PCStats.Models/)** - Shared data models (DTOs)
+2. **[Slov89.PCStats.Data](Slov89.PCStats.Data/)** - Data access layer for PostgreSQL
+3. **[Slov89.PCStats.Service](Slov89.PCStats.Service/)** - Windows service that collects metrics
+4. **[Slov89.PCStats.Dashboard](Slov89.PCStats.Dashboard/)** - Blazor Server web dashboard
 
 Data is stored in PostgreSQL with an efficient normalized schema, indexed for fast querying.
 
-## Features
+## Key Features
 
-- **Process Monitoring**: Tracks all running processes on the system
-- **Smart Filtering**: All processes tracked in master list, but only processes with CPU usage >= threshold (default 5%) get detailed metrics saved
-- **Performance Metrics**: Records CPU usage, memory usage (working set, private, virtual), VRAM usage, thread count, and handle count for active processes
-- **CPU Temperature Monitoring**: Integrates with HWiNFO v8.14 to capture specific AMD CPU sensors (Tctl/Tdie, Die average, CCD1, CCD2)
-- **PostgreSQL Database**: Stores all metrics in a normalized relational database for efficient querying
-- **Windows Service**: Runs in the background as a Windows service
-- **5-Second Intervals**: Collects metrics every 5 seconds
+- **Automated Monitoring**: Collects system and process metrics every 5 seconds
+- **Smart Filtering**: Only saves detailed metrics for processes with CPU usage >= threshold (default 5%)
+- **CPU Temperature Tracking**: Integrates with HWiNFO v8.14 for AMD CPU temperature sensors
+- **Real-time Dashboard**: Interactive web UI with charts for CPU, memory, temperatures, and top processes
+- **Time Range Filtering**: View metrics for 5, 10, 30, or 60 minutes
 - **Storage Optimization**: ~92% storage reduction with CPU threshold filtering
+- **Windows Service**: Runs in background, starts with Windows
 
-## Technologies Used
+## Quick Start
 
-- **.NET 10** - Latest .NET framework
-- **C#** - Programming language
-- **PostgreSQL 12+** - Database
-- **Npgsql 10.0.1** - PostgreSQL driver for .NET
-- **System.Diagnostics.PerformanceCounter** - Process and performance counter APIs
-- **System.Management** - WMI for VRAM monitoring
-- **Microsoft.Extensions.Hosting.WindowsServices** - Background service framework
-- **HWiNFO v8.14** - Third-party hardware monitoring tool (optional)
-
-## Project Structure
-
-```
-slov89-pc-stats-utility/
-├── Database/
-│   ├── 01_InitialSchema.sql          # PostgreSQL database schema
-│   ├── Initialize-Database.ps1       # Database setup script
-│   └── README.md                      # Database documentation
-│
-├── PCStatsService/
-│   ├── Models/
-│   │   ├── Snapshot.cs                # Main snapshot model
-│   │   ├── Process.cs                 # Process model
-│   │   ├── ProcessSnapshot.cs         # Process performance metrics model
-│   │   ├── CpuTemperature.cs         # CPU temperature model
-│   │   └── ProcessInfo.cs            # Process information DTO
-│   │
-│   ├── Services/
-│   │   ├── ProcessMonitorService.cs   # Monitors running processes
-│   │   ├── HWiNFOService.cs          # Reads CPU temps from HWiNFO
-│   │   └── DatabaseService.cs        # PostgreSQL operations
-│   │
-│   ├── Worker.cs                      # Main background worker
-│   ├── Program.cs                     # Service configuration
-│   ├── appsettings.json              # Configuration
-│   ├── appsettings.Development.json  # Development configuration
-│   ├── PCStatsService.csproj         # Project file (.NET 10)
-│   ├── Install-Service.ps1           # Installation script
-│   └── Uninstall-Service.ps1         # Uninstallation script
-│
-├── Set-ConnectionString.ps1          # Helper script to set connection string env var
-├── README.md                          # This file
-└── .gitignore                         # Git ignore file
-```
-
-## Prerequisites
-
-- Windows 10/11 or Windows Server 2019+
-- .NET 10 SDK (for building)
-- .NET 10 Runtime (for running)
-- PostgreSQL 12+ database server
-- HWiNFO v8.14 (for CPU temperature monitoring)
-  - Must be configured to enable shared memory support
-
-## Installation
-
-### Step 1: Database Setup
-
-**Option A: Using the PowerShell script (Recommended)**
-
-This script will automatically create the database if it doesn't exist.
+### 1. Setup Database
 
 ```powershell
 cd Database
-
-# Interactive (password will be prompted securely)
-.\Initialize-Database.ps1 -Server "localhost" -Port 5432 -Database "pc_stats_monitoring" -Username "postgres" -Password (Read-Host -AsSecureString -Prompt "Enter PostgreSQL password")
-
-# Or with inline SecureString (less secure, but useful for scripts)
-$SecurePassword = ConvertTo-SecureString "your_password" -AsPlainText -Force
-.\Initialize-Database.ps1 -Server "localhost" -Port 5432 -Database "pc_stats_monitoring" -Username "postgres" -Password $SecurePassword
+.\Initialize-Database.ps1 -Server "localhost" -Port 5432 -Database "pcstats" -Username "postgres" -Password (Read-Host -AsSecureString)
 ```
 
-**Option B: Manual setup**
+See [Database/README.md](Database/README.md) for details.
+
+### 2. Configure Connection String
 
 ```powershell
-# Connect to PostgreSQL
-psql -U postgres
-
-# Create database
-CREATE DATABASE pc_stats_monitoring;
-\q
-
-# Run schema script
-psql -U postgres -d pc_stats_monitoring -f "Database\01_InitialSchema.sql"
+.\Set-ConnectionString.ps1 -ConnectionString "Host=localhost;Port=5432;Database=pcstats;Username=postgres;Password=YOUR_PASSWORD"
 ```
 
-### Step 2: Configure the Service
+This sets the `slov89_pc_stats_utility_pg` environment variable.
 
-**Set the PostgreSQL connection string as an environment variable:**
-
-Open PowerShell as Administrator and run:
+### 3. Install Windows Service
 
 ```powershell
-.\Set-ConnectionString.ps1 -ConnectionString "Host=localhost;Port=5432;Database=pc_stats_monitoring;Username=postgres;Password=YOUR_PASSWORD"
-```
-
-This sets the `slov89_pc_stats_utility_pg` environment variable at the Machine level, making it:
-- Available to Windows services
-- Persistent across reboots
-- Secure (not stored in git)
-
-**Optional: Configure monitoring settings**
-
-Edit `PCStatsService\appsettings.json` if you want to change monitoring behavior:
-
-```json
-{
-  "MonitoringSettings": {
-    "IntervalSeconds": 5,
-    "EnableVRAMMonitoring": true,
-    "EnableCPUTemperatureMonitoring": true,
-    "MinimumCpuUsagePercent": 5.0  // Only save detailed metrics for processes with CPU >= this %
-                                    // Set to 0 to save detailed metrics for all processes
-  }
-}
-```
-
-Note: The connection string is configured via environment variable, not in appsettings.json.
-
-### Step 3: Configure HWiNFO (Optional)
-
-If you want CPU temperature monitoring:
-
-1. Install HWiNFO v8.14
-2. Open HWiNFO Settings (click the Settings/gear button)
-3. Go to "Shared Memory Support" section
-4. Check "Enable Shared Memory Support"
-5. Click OK and restart HWiNFO
-6. Keep HWiNFO running in the background
-
-Note: The service will run without HWiNFO, it just won't collect temperature data.
-
-### Step 4: Install as Windows Service
-
-**Option A: Using the installation script (Recommended)**
-
-Open PowerShell as Administrator:
-
-```powershell
-cd "C:\Users\ezupe\Documents\Development\slov89-pc-stats-utility\PCStatsService"
+cd Slov89.PCStats.Service
 .\Install-Service.ps1
 ```
 
-The script will:
-- Build the project
-- Publish to `C:\Services\PCStatsService`
-- Create and configure the Windows service
-- Prompt you to start the service
+See [Slov89.PCStats.Service/README.md](Slov89.PCStats.Service/README.md) for details.
 
-**Option B: Manual installation**
-
-**Option B: Manual installation**
+### 4. Run Dashboard
 
 ```powershell
-# Build the service
-cd PCStatsService
-dotnet build -c Release
-
-# Publish the service
-dotnet publish -c Release -o C:\Services\PCStatsService
-
-# Install as Windows Service (as Administrator)
-sc.exe create PCStatsMonitoringService binPath="C:\Services\PCStatsService\PCStatsService.exe" start=auto
-sc.exe description PCStatsMonitoringService "Monitors PC performance stats and logs to PostgreSQL database"
-sc.exe start PCStatsMonitoringService
+cd Slov89.PCStats.Dashboard
+dotnet run
 ```
 
-### Step 5: Verify Installation
+Navigate to `https://localhost:5001`
 
-**Check service status:**
-```powershell
-Get-Service PCStatsMonitoringService
+See [Slov89.PCStats.Dashboard/README.md](Slov89.PCStats.Dashboard/README.md) for details.
+
+## Prerequisites
+
+- **Windows 10/11** or Windows Server 2019+
+- **.NET 10 SDK** (for building) or .NET 10 Runtime (for running)
+- **PostgreSQL 12+** database server
+- **HWiNFO v8.14** (optional, for CPU temperature monitoring)
+
+## Solution Structure
+
+```
+slov89-pc-stats-utility/
+├── Database/                          # Database schema and setup scripts
+│   ├── 01_InitialSchema.sql          
+│   ├── Initialize-Database.ps1       
+│   └── README.md                      📖 Database documentation
+│
+├── Slov89.PCStats.Models/            # Shared data models
+│   └── README.md                      📖 Models documentation
+│
+├── Slov89.PCStats.Data/              # Data access layer
+│   ├── DatabaseService.cs             # Write operations (used by Service)
+│   ├── MetricsService.cs              # Read operations (used by Dashboard)
+│   └── README.md                      📖 Data layer documentation
+│
+├── Slov89.PCStats.Service/           # Windows monitoring service
+│   ├── Install-Service.ps1           
+│   ├── Uninstall-Service.ps1         
+│   └── README.md                      📖 Service documentation
+│
+├── Slov89.PCStats.Dashboard/         # Web dashboard
+│   └── README.md                      📖 Dashboard documentation
+│
+├── Set-ConnectionString.ps1          # Connection string helper
+└── README.md                          # This file
 ```
 
-**Check Event Logs:**
-1. Open Event Viewer (`eventvwr.msc`)
-2. Go to Windows Logs → Application
-3. Filter by source: "PCStatsMonitoringService"
-4. You should see: "PC Stats Service started. Monitoring every 5 seconds..."
+## Documentation
 
-**Check Database:**
+### Project-Specific Guides
+
+- **[Models Documentation](Slov89.PCStats.Models/README.md)** - Data models and DTOs
+- **[Data Layer Documentation](Slov89.PCStats.Data/README.md)** - Database operations and queries
+- **[Service Documentation](Slov89.PCStats.Service/README.md)** - Installation, configuration, troubleshooting
+- **[Dashboard Documentation](Slov89.PCStats.Dashboard/README.md)** - Running, deploying, customizing
+- **[Database Documentation](Database/README.md)** - Schema, views, functions, queries
+
+### What Each Component Does
+
+#### Slov89.PCStats.Models
+Plain C# classes representing domain entities (Snapshot, Process, CpuTemperature, etc.). Referenced by all other projects.
+
+#### Slov89.PCStats.Data
+Provides two main services:
+- **DatabaseService** - Write operations (create snapshots, save process data)
+- **MetricsService** - Read operations (query time-series data for dashboard)
+
+#### Slov89.PCStats.Service
+Background Windows service that:
+1. Collects system metrics (CPU, memory) every 5 seconds
+2. Enumerates running processes and their metrics
+3. Reads CPU temperatures from HWiNFO (if running)
+4. Stores data in PostgreSQL via DatabaseService
+
+#### Slov89.PCStats.Dashboard
+Blazor Server web application that:
+1. Queries metrics data via MetricsService
+2. Displays interactive charts (ApexCharts)
+3. Allows time range filtering (5/10/30/60 minutes)
+4. Shows real-time system performance
+
+## Technologies Used
+
+- **.NET 10** - Framework
+- **C#** - Programming language
+- **PostgreSQL 12+** - Database
+- **Blazor Server** - Web UI framework
+- **ApexCharts** - Charting library
+- **Bootstrap 5** - UI components
+- **Npgsql 10.0.1** - PostgreSQL driver
+- **HWiNFO v8.14** - Hardware monitoring (optional)
+
+## Database Schema
+
+The PostgreSQL database contains:
+
+- **snapshots** - System metrics (CPU, memory) every 5 seconds
+- **processes** - Master list of all processes ever seen
+- **process_snapshots** - Per-process metrics (only for processes with CPU >= threshold)
+- **cpu_temperatures** - CPU temperature readings from HWiNFO
+
+See [Database/README.md](Database/README.md) for full schema, views, and useful queries.
+
+## Performance & Storage
+
+### Data Volume (with 5% CPU threshold)
+- **12 snapshots/minute** (5-second intervals)
+- **~10-30 active processes per snapshot** (filtered from ~200 total)
+- **~350,000 records/day**
+- **~33 MB/day** (vs ~408 MB without filtering)
+- **Storage savings: ~92%**
+
+### Cleanup
+
+Use the provided function to remove old data:
 ```sql
--- Connect to database
-psql -U postgres -d pc_stats_monitoring
+SELECT cleanup_old_snapshots(7);  -- Keep last 7 days
+```
 
+## Development
+
+### Build Solution
+
+```powershell
+dotnet build
+```
+
+### Run Tests
+
+```powershell
+# Run service in console mode
+cd Slov89.PCStats.Service
+dotnet run
+
+# Run dashboard in development mode
+cd Slov89.PCStats.Dashboard
+dotnet run
+```
+
+### Environment Variables
+
+Both Service and Dashboard read the connection string from:
+- **Variable Name**: `slov89_pc_stats_utility_pg`
+- **Set via**: `Set-ConnectionString.ps1` script
+- **Scope**: Machine (persists across reboots, available to services)
+
+## Common Tasks
+
+### Check Service Status
+```powershell
+Get-Service Slov89PCStatsService
+```
+
+### View Service Logs
+1. Event Viewer → Windows Logs → Application
+2. Filter by source: "Slov89PCStatsService"
+
+### Access Dashboard
+Navigate to `https://localhost:5001` (or configured URL)
+
+### Query Database
+```sql
 -- View latest snapshots
-SELECT * FROM snapshots ORDER BY snapshot_id DESC LIMIT 10;
+SELECT * FROM snapshots ORDER BY snapshot_timestamp DESC LIMIT 10;
 
 -- View latest process stats
 SELECT * FROM v_latest_process_stats LIMIT 20;
 
--- View CPU temperatures (if HWiNFO is running)
+-- View CPU temperatures
 SELECT * FROM v_latest_cpu_temps;
 ```
 
-## What's Being Monitored
-
-Every 5 seconds, the service records:
-
-### System Level
-- Total CPU usage percentage
-- Total memory usage in MB
-- Available memory in MB
-
-### Per Process
-All processes are tracked in the `processes` table. For processes with CPU usage >= threshold (default 5%):
-- Process name and file path
-- CPU usage percentage
-- Memory usage (working set, private, virtual) in MB
-- VRAM usage in MB (if available via GPU drivers)
-- Thread count
-- Handle count
-
-### CPU Temperatures (if HWiNFO is running)
-- CPU (Tctl/Tdie) - Main CPU temperature
-- CPU Die (average) - Average die temperature
-- CPU CCD1 (Tdie) - Core Complex Die 1 temperature
-- CPU CCD2 (Tdie) - Core Complex Die 2 temperature
-- Thermal Limit - Thermal limit percentage
-- Thermal Throttling (HTC) - Whether thermal throttling is active (yes/no)
-
-## Database Schema
-
-The database uses a normalized relational design with 4 main tables:
-
-### Tables
-1. **snapshots** - Main table for each monitoring interval (every 5 seconds)
-   - `snapshot_id` (primary key)
-   - `snapshot_timestamp`
-   - `total_cpu_usage`, `total_memory_usage_mb`, `total_available_memory_mb`
-
-2. **processes** - Unique process definitions (all processes ever seen)
-   - `process_id` (primary key)
-   - `process_name`, `process_path`
-   - `first_seen`, `last_seen`
-   - **Note**: All processes tracked here regardless of CPU usage
-
-3. **process_snapshots** - Performance metrics for each process at each snapshot
-   - `process_snapshot_id` (primary key)
-   - Foreign keys: `snapshot_id`, `process_id`
-   - Metrics: `cpu_usage`, memory usage, VRAM, threads, handles
-   - **Note**: Only contains records for processes with CPU usage >= configured threshold (default 5%)
-
-4. **cpu_temperatures** - CPU temperature readings from HWiNFO
-   - `temp_id` (primary key)
-   - `snapshot_id` (foreign key, one record per snapshot)
-   - `cpu_tctl_tdie`, `cpu_die_average`, `cpu_ccd1_tdie`, `cpu_ccd2_tdie`
-   - `thermal_limit_percent`, `thermal_throttling`
-
-### Views
-- **v_latest_process_stats** - Most recent process statistics
-- **v_latest_cpu_temps** - Most recent CPU temperatures
-
-### Functions
-- **cleanup_old_snapshots(days_to_keep)** - Removes old data for maintenance
-
-See [Database/README.md](Database/README.md) for detailed schema information.
-
-## Performance & Storage
-
-### Data Volume (with 5% CPU threshold filtering)
-- **12 snapshots/minute** (5-second intervals)
-- **720 snapshots/hour**
-- **~10-30 active processes per snapshot** (filtered from ~200 total)
-- **~14,400 process snapshot records/hour** (instead of 144,000 without filtering)
-- **~350,000 records/day**
-
-### Storage Estimates
-Daily storage with 5% CPU threshold:
-- Snapshots table: ~850 KB
-- Process snapshots table (filtered): ~31 MB
-- CPU temperatures: ~700 KB
-- **Total: ~33 MB/day**
-
-Without filtering (all processes): ~408 MB/day
-
-**Storage savings: ~92% with default threshold**
-
-### Optimization Tips
-- Use `cleanup_old_snapshots()` function regularly
-- Adjust `MinimumCpuUsagePercent` based on your needs (0 = log all processes)
-- Consider archiving old data to separate tables
-- Use database partitioning for very large datasets
-
-Example cleanup (keep last 7 days):
-```sql
-SELECT cleanup_old_snapshots(7);
-```
-
-## Useful Queries
-
-### Top 10 CPU consuming processes in the last hour
-```sql
-SELECT 
-    p.process_name,
-    AVG(ps.cpu_usage) as avg_cpu,
-    MAX(ps.cpu_usage) as max_cpu,
-    COUNT(*) as sample_count
-FROM process_snapshots ps
-JOIN processes p ON ps.process_id = p.process_id
-JOIN snapshots s ON ps.snapshot_id = s.snapshot_id
-WHERE s.snapshot_timestamp > NOW() - INTERVAL '1 hour'
-GROUP BY p.process_name
-ORDER BY avg_cpu DESC
-LIMIT 10;
-```
-
-### Top 10 memory consuming processes in the last hour
-```sql
-SELECT 
-    p.process_name,
-    AVG(ps.memory_usage_mb) as avg_memory_mb,
-    MAX(ps.memory_usage_mb) as max_memory_mb
-FROM process_snapshots ps
-JOIN processes p ON ps.process_id = p.process_id
-JOIN snapshots s ON ps.snapshot_id = s.snapshot_id
-WHERE s.snapshot_timestamp > NOW() - INTERVAL '1 hour'
-GROUP BY p.process_name
-ORDER BY avg_memory_mb DESC
-LIMIT 10;
-```
-
-### CPU temperature trends over the last hour
-```sql
-SELECT 
-    s.snapshot_timestamp,
-    ct.cpu_tctl_tdie,
-    ct.cpu_die_average,
-    ct.cpu_ccd1_tdie,
-    ct.cpu_ccd2_tdie
-FROM cpu_temperatures ct
-JOIN snapshots s ON ct.snapshot_id = s.snapshot_id
-WHERE s.snapshot_timestamp > NOW() - INTERVAL '1 hour'
-ORDER BY s.snapshot_timestamp DESC;
-```
-
-### Process activity timeline (when a process was active)
-```sql
-SELECT 
-    p.process_name,
-    p.first_seen,
-    p.last_seen,
-    p.last_seen - p.first_seen as total_tracked_duration,
-    COUNT(ps.process_snapshot_id) as active_snapshots
-FROM processes p
-LEFT JOIN process_snapshots ps ON p.process_id = ps.process_id
-GROUP BY p.process_id, p.process_name, p.first_seen, p.last_seen
-ORDER BY p.last_seen DESC
-LIMIT 20;
-```
-
-## Service Management
-
-### Start the service
-```powershell
-Start-Service PCStatsMonitoringService
-# or
-sc.exe start PCStatsMonitoringService
-```
-
-### Stop the service
-```powershell
-Stop-Service PCStatsMonitoringService
-# or
-sc.exe stop PCStatsMonitoringService
-```
-
-### View service status
-```powershell
-Get-Service PCStatsMonitoringService
-# or
-sc.exe query PCStatsMonitoringService
-```
-
-### View service logs
-Check Windows Event Viewer:
-- Open Event Viewer (`eventvwr.msc`)
-- Navigate to: Windows Logs → Application
-- Filter by source: "PCStatsMonitoringService"
-
-The service logs:
-- **Information**: Service start/stop, snapshot creation
-- **Warning**: HWiNFO not running, connection issues
-- **Error**: Database errors, critical failures
-
-### Uninstall the service
-```powershell
-# Using the uninstall script (from PCStatsService folder)
-cd PCStatsService
-.\Uninstall-Service.ps1
-
-# Or manually
-Stop-Service PCStatsMonitoringService
-sc.exe delete PCStatsMonitoringService
-```
-
-## Development & Testing
-
-### Run in console mode (for testing)
-
-```powershell
-cd PCStatsService
-dotnet run
-```
-
-Press Ctrl+C to stop.
-
-### Run with debug logging
-
-Edit `appsettings.Development.json` and set log level to "Debug", then:
-
-```powershell
-dotnet run --environment Development
-```
-
-### Build the project
-
-```powershell
-dotnet build -c Release
-```
+More queries in [Database/README.md](Database/README.md).
 
 ## Troubleshooting
 
-### Service won't start
-- **Check Event Viewer** for detailed error messages (source: "PCStatsMonitoringService")
-- **Verify PostgreSQL connection string** is correct in `appsettings.json`
-- **Ensure PostgreSQL service is running**: `Get-Service postgresql*`
-- **Verify database schema** has been created: `psql -U postgres -d pc_stats_monitoring -c "\dt"`
-- **Check file permissions** on `C:\Services\PCStatsService\` folder
+### Service Issues
+See [Slov89.PCStats.Service/README.md](Slov89.PCStats.Service/README.md#troubleshooting)
 
-### No CPU temperature data
-- **Ensure HWiNFO v8.14 is installed and running**
-- **Verify "Shared Memory Support"** is enabled in HWiNFO settings
-- **This feature is optional** - the service will run without it
-- Check Event Viewer logs for HWiNFO-related warnings
-- Verify you have an AMD processor with supported sensors
+### Dashboard Issues
+See [Slov89.PCStats.Dashboard/README.md](Slov89.PCStats.Dashboard/README.md#troubleshooting)
 
-### High CPU/Memory usage by the service
-- **Normal CPU usage**: 1-3% on average
-- **Check monitoring interval**: Default is 5 seconds (configurable in `appsettings.json`)
-- **Consider increasing CPU threshold**: Higher `MinimumCpuUsagePercent` = less data stored
-- **Review process count**: 200+ processes can increase processing time
-- Check Event Viewer for performance warnings
+### Database Issues
+See [Database/README.md](Database/README.md)
 
-### Database growing too fast
-- **Use CPU threshold filtering**: Default 5% saves ~92% storage
-- **Run cleanup regularly**: `SELECT cleanup_old_snapshots(7);` to keep last 7 days
-- **Adjust retention policy**: Keep only data you need
-- **Consider archiving**: Move old data to archive tables
-- **Monitor database size**: `SELECT pg_size_pretty(pg_database_size('pc_stats_monitoring'));`
-
-### VRAM data not showing
-- **VRAM monitoring requires specific GPU drivers** and may not work on all systems
-- **Integrated graphics** (Intel, AMD APU) may not report VRAM usage
-- **Check logs** for VRAM-related errors in Event Viewer
-- **This is optional** - service continues without VRAM data
-- You can disable VRAM monitoring in `appsettings.json`: `"EnableVRAMMonitoring": false`
-
-### Connection errors to PostgreSQL
-- **Verify PostgreSQL is running**: `Get-Service postgresql*`
-- **Test connection manually**: `psql -U postgres -d pc_stats_monitoring`
-- **Check firewall settings** if PostgreSQL is on a remote server
-- **Verify username/password** in connection string
-- **Check PostgreSQL logs** for authentication errors
-
-### Process data seems incomplete
-- **Check CPU threshold setting**: Processes below `MinimumCpuUsagePercent` won't have detailed metrics
-- **All processes are tracked** in `processes` table regardless of threshold
-- **Only active processes** (CPU >= threshold) get entries in `process_snapshots`
-- Set `MinimumCpuUsagePercent` to 0 to log all processes (increases storage ~10x)
-
-## Configuration Reference
-
-### appsettings.json
-
-```json
-{
-  "ConnectionStrings": {
-    "PostgreSQL": "Host=localhost;Port=5432;Database=pc_stats_monitoring;Username=postgres;Password=your_password"
-  },
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "PCStatsService": "Information"
-    }
-  },
-  "MonitoringSettings": {
-    "IntervalSeconds": 5,                     // Monitoring interval in seconds
-    "EnableVRAMMonitoring": true,             // Enable VRAM monitoring (may not work on all systems)
-    "EnableCPUTemperatureMonitoring": true,   // Enable HWiNFO temperature monitoring
-    "MinimumCpuUsagePercent": 5.0             // Only save detailed metrics for processes with CPU >= this %
-                                               // Set to 0 to save all processes (increases storage)
-  }
-}
-```
-
-## Architecture
-
-### Service Components
-
-```
-PCStatsService (Worker Service)
-├── Models/
-│   ├── Snapshot.cs           # Snapshot data model
-│   ├── Process.cs            # Process data model
-│   ├── ProcessSnapshot.cs    # Process snapshot data model
-│   ├── CpuTemperature.cs    # CPU temperature data model
-│   └── ProcessInfo.cs       # Process info DTO
-├── Services/
-│   ├── ProcessMonitorService.cs    # Monitors running processes
-│   │   - GetRunningProcessesAsync()
-│   │   - CalculateProcessCpuUsage()
-│   │   - GetProcessVRAM()
-│   │
-│   ├── HWiNFOService.cs            # Reads CPU temps from HWiNFO
-│   │   - GetCpuTemperaturesAsync()
-│   │   - ReadFromHWiNFOSharedMemory()
-│   │   - ReadFromHWiNFORegistry() [fallback]
-│   │
-│   └── DatabaseService.cs          # PostgreSQL operations
-│       - CreateSnapshotAsync()
-│       - GetOrCreateProcessAsync()
-│       - CreateProcessSnapshotAsync()
-│       - CreateCpuTemperatureAsync()
-│
-├── Worker.cs                        # Main background worker
-│   - ExecuteAsync() - Main service loop
-│   - CollectAndLogStatsAsync() - Data collection orchestration
-│
-└── Program.cs                       # Service configuration & DI setup
-```
-
-### Data Flow
-
-1. **Worker** executes every 5 seconds
-2. **ProcessMonitorService** collects process information and metrics
-3. **HWiNFOService** reads CPU temperatures (if HWiNFO is running)
-4. **Worker** creates snapshot and tracks all processes in master table
-5. **Worker** filters processes by CPU threshold
-6. **DatabaseService** persists:
-   - Snapshot with system metrics
-   - All processes to `processes` table
-   - Filtered process metrics to `process_snapshots` table
-   - CPU temperatures to `cpu_temperatures` table
-7. Cycle repeats
-
-### Dependencies
-
-- **Npgsql** - PostgreSQL database driver
-- **System.Diagnostics.PerformanceCounter** - CPU/memory performance counters
-- **System.Management** - WMI queries for VRAM
-- **Microsoft.Extensions.Hosting.WindowsServices** - Windows service hosting
-
-## Future Enhancement Ideas
-
-1. **Web Dashboard** - Real-time monitoring interface
-2. **Alerting System** - Email/SMS alerts for high CPU/memory usage
-3. **GPU Monitoring** - Comprehensive GPU metrics beyond just VRAM
-4. **Network I/O** - Track network usage per process
-5. **Disk I/O** - Track disk read/write per process
-6. **Process Filtering** - Configurable include/exclude process lists
-7. **Data Export** - Export to CSV, JSON, or Excel
-8. **REST API** - API endpoints for data access
-9. **Automated Reports** - Daily/weekly summary reports
-10. **Multi-Machine Support** - Agent architecture for monitoring multiple PCs
-11. **Historical Analysis** - Trend analysis and anomaly detection
-12. **Custom Metrics** - Plugin system for custom metrics
+### General Checks
+- Verify environment variable: `[Environment]::GetEnvironmentVariable('slov89_pc_stats_utility_pg', 'Machine')`
+- Check PostgreSQL running: `Get-Service postgresql*`
+- Test database connection: `psql -U postgres -d pcstats`
 
 ## Version History
 
-- **v1.0** - Initial release
-  - Process monitoring with smart filtering
-  - CPU temperature monitoring (HWiNFO integration)  
-  - PostgreSQL storage with normalized schema
-  - Windows service implementation
-  - 5-second monitoring intervals
-  - Storage optimization with CPU threshold
+### v2.0 - Multi-project refactor and dashboard
+- Reorganized into multi-project solution (Models, Data, Service, Dashboard)
+- Created Blazor Server web dashboard with real-time visualization
+- ApexCharts integration for interactive graphs
+- Time range filtering (5/10/30/60 minutes)
+- Moved all database operations to shared Data project
+- Environment variable configuration (`slov89_pc_stats_utility_pg`)
+- Separated interfaces and implementations
+
+### v1.0 - Initial release
+- Process monitoring with smart filtering
+- CPU temperature monitoring (HWiNFO integration)
+- PostgreSQL storage with normalized schema
+- Windows service implementation
+- 5-second monitoring intervals
+- Storage optimization with CPU threshold
 
 ## License
 
@@ -613,12 +270,12 @@ PCStatsService (Worker Service)
 
 ## Support
 
-For issues, questions, or contributions:
-- Check [troubleshooting](#troubleshooting) section first
-- Review Windows Event Viewer logs
-- Check PostgreSQL logs
-- Verify database schema with [Database/README.md](Database/README.md)
+For detailed information:
+- 📖 [Service Documentation](Slov89.PCStats.Service/README.md)
+- 📖 [Dashboard Documentation](Slov89.PCStats.Dashboard/README.md)
+- 📖 [Data Layer Documentation](Slov89.PCStats.Data/README.md)
+- 📖 [Database Documentation](Database/README.md)
 
 ---
 
-**Built with .NET 10 | PostgreSQL | HWiNFO v8.14**
+**Built with .NET 10 | Blazor Server | PostgreSQL | ApexCharts | HWiNFO v8.14**

@@ -1,10 +1,14 @@
 using Slov89.PCStats.Dashboard.Components;
+using Slov89.PCStats.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// Register MetricsService
+builder.Services.AddScoped<IMetricsService, MetricsService>();
 
 var app = builder.Build();
 

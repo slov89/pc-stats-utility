@@ -1,0 +1,330 @@
+@page "/metrics"
+@using Slov89.PCStats.Data
+@using Slov89.PCStats.Models
+@using ApexCharts
+@inject IMetricsService MetricsService
+@rendermode InteractiveServer
+
+<PageTitle>System Metrics</PageTitle>
+
+<h1>System Metrics</h1>
+
+<div class="row mb-3">
+    <div class="col-md-12">
+        <div class="btn-group" role="group">
+            <button type="button" class="btn @(selectedMinutes == 5 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(5)">5 Minutes</button>
+            <button type="button" class="btn @(selectedMinutes == 10 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(10)">10 Minutes</button>
+            <button type="button" class="btn @(selectedMinutes == 30 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(30)">30 Minutes</button>
+            <button type="button" class="btn @(selectedMinutes == 60 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(60)">1 Hour</button>
+        </div>
+        <button type="button" class="btn btn-success ms-3" @onclick="RefreshData">
+            <span class="bi bi-arrow-clockwise"></span> Refresh
+        </button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading metrics data...</p>
+    </div>
+}
+else if (hasError)
+{
+    <div class="alert alert-danger" role="alert">
+        <h4 class="alert-heading">Error Loading Data</h4>
+        <p>@errorMessage</p>
+        <hr>
+        <p class="mb-0">Please check your database connection and try again.</p>
+    </div>
+}
+else if (!snapshots.Any())
+{
+    <div class="alert alert-warning" role="alert">
+        <h4 class="alert-heading">No Data Available</h4>
+        <p>No metrics data found for the selected time range.</p>
+        <p class="mb-0">Make sure the PCStats Service is running and collecting data.</p>
+    </div>
+}
+else
+{
+    <div class="row">
+        <!-- CPU Usage Chart -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">System CPU Usage</h5>
+                </div>
+                <div class="card-body">
+                    <ApexChart TItem="Snapshot"
+                               Title="CPU Usage Over Time"
+                               Options="cpuChartOptions"
+                               Height="300">
+                        <ApexPointSeries TItem="Snapshot"
+                                         Items="snapshots"
+                                         Name="CPU %"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="@(e => e.SnapshotTimestamp)"
+                                         YAggregate="@(e => e.Sum(x => x.TotalCpuUsage ?? 0))"
+                                         OrderBy="@(e => e.X)" />
+                    </ApexChart>
+                </div>
+            </div>
+        </div>
+
+        <!-- Memory Usage Chart -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">System Memory Usage</h5>
+                </div>
+                <div class="card-body">
+                    <ApexChart TItem="Snapshot"
+                               Title="Memory Usage Over Time"
+                               Options="memoryChartOptions"
+                               Height="300">
+                        <ApexPointSeries TItem="Snapshot"
+                                         Items="snapshots"
+                                         Name="Used Memory (MB)"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="@(e => e.SnapshotTimestamp)"
+                                         YAggregate="@(e => e.Sum(x => x.TotalMemoryUsageMb ?? 0))"
+                                         OrderBy="@(e => e.X)" />
+                    </ApexChart>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (temperatures.Any())
+    {
+        <div class="row">
+            <!-- CPU Temperature Chart -->
+            <div class="col-md-12 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">CPU Temperatures</h5>
+                    </div>
+                    <div class="card-body">
+                        <ApexChart TItem="TempReading"
+                                   Title="CPU Temperature Over Time"
+                                   Options="temperatureChartOptions"
+                                   Height="300">
+                            @if (tempReadings.Any(t => t.CpuTctlTdie.HasValue))
+                            {
+                                <ApexPointSeries TItem="TempReading"
+                                                 Items="tempReadings.Where(t => t.CpuTctlTdie.HasValue)"
+                                                 Name="CPU Tctl/Tdie"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="@(e => e.Timestamp)"
+                                                 YAggregate="@(e => e.Sum(x => x.CpuTctlTdie ?? 0))"
+                                                 OrderBy="@(e => e.X)" />
+                            }
+                            @if (tempReadings.Any(t => t.CpuDieAverage.HasValue))
+                            {
+                                <ApexPointSeries TItem="TempReading"
+                                                 Items="tempReadings.Where(t => t.CpuDieAverage.HasValue)"
+                                                 Name="CPU Die Average"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="@(e => e.Timestamp)"
+                                                 YAggregate="@(e => e.Sum(x => x.CpuDieAverage ?? 0))"
+                                                 OrderBy="@(e => e.X)" />
+                            }
+                        </ApexChart>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (processMetrics.Any())
+    {
+        <div class="row">
+            <!-- Top Processes CPU Chart -->
+            <div class="col-md-12 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Top Processes CPU Usage</h5>
+                    </div>
+                    <div class="card-body">
+                        <ApexChart TItem="ProcessMetric"
+                                   Title="Top Processes by CPU Usage"
+                                   Options="processChartOptions"
+                                   Height="300">
+                            @foreach (var process in processMetrics.Take(5))
+                            {
+                                <ApexPointSeries TItem="ProcessMetric"
+                                                 Items="process.Value"
+                                                 Name="@process.Key"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="@(e => e.Timestamp)"
+                                                 YAggregate="@(e => e.Sum(x => x.CpuUsage))"
+                                                 OrderBy="@(e => e.X)" />
+                            }
+                        </ApexChart>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Summary Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <h6>Average CPU Usage</h6>
+                            <h3 class="text-primary">@($"{snapshots.Average(s => s.TotalCpuUsage ?? 0):F1}%")</h3>
+                        </div>
+                        <div class="col-md-3">
+                            <h6>Peak CPU Usage</h6>
+                            <h3 class="text-danger">@($"{snapshots.Max(s => s.TotalCpuUsage ?? 0):F1}%")</h3>
+                        </div>
+                        <div class="col-md-3">
+                            <h6>Average Memory Used</h6>
+                            <h3 class="text-info">@($"{snapshots.Average(s => s.TotalMemoryUsageMb ?? 0):N0} MB")</h3>
+                        </div>
+                        <div class="col-md-3">
+                            <h6>Data Points</h6>
+                            <h3 class="text-success">@snapshots.Count</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Snapshot> snapshots = new();
+    private List<CpuTemperature> temperatures = new();
+    private Dictionary<string, List<ProcessMetric>> processMetrics = new();
+    private List<TempReading> tempReadings = new();
+    private int selectedMinutes = 10;
+    private bool isLoading = true;
+    private bool hasError = false;
+    private string errorMessage = string.Empty;
+
+    private ApexChartOptions<Snapshot> cpuChartOptions = new()
+    {
+        Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Xaxis = new XAxis { Type = XAxisType.Datetime },
+        Yaxis = new List<YAxis> { new YAxis { Min = 0, Max = 100, Title = new AxisTitle { Text = "CPU %" } } },
+        Colors = new List<string> { "#008FFB" }
+    };
+
+    private ApexChartOptions<Snapshot> memoryChartOptions = new()
+    {
+        Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Xaxis = new XAxis { Type = XAxisType.Datetime },
+        Yaxis = new List<YAxis> { new YAxis { Min = 0, Title = new AxisTitle { Text = "Memory (MB)" } } },
+        Colors = new List<string> { "#00E396" }
+    };
+
+    private ApexChartOptions<TempReading> temperatureChartOptions = new()
+    {
+        Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Xaxis = new XAxis { Type = XAxisType.Datetime },
+        Yaxis = new List<YAxis> { new YAxis { Title = new AxisTitle { Text = "Temperature (°C)" } } },
+        Colors = new List<string> { "#FEB019", "#FF4560" }
+    };
+
+    private ApexChartOptions<ProcessMetric> processChartOptions = new()
+    {
+        Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Xaxis = new XAxis { Type = XAxisType.Datetime },
+        Yaxis = new List<YAxis> { new YAxis { Min = 0, Title = new AxisTitle { Text = "CPU %" } } }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task SelectTimeRange(int minutes)
+    {
+        selectedMinutes = minutes;
+        await LoadData();
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        hasError = false;
+        errorMessage = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            var endTime = DateTime.Now;
+            var startTime = endTime.AddMinutes(-selectedMinutes);
+
+            snapshots = await MetricsService.GetSnapshotsAsync(startTime, endTime);
+            temperatures = await MetricsService.GetCpuTemperaturesAsync(startTime, endTime);
+            var topProcesses = await MetricsService.GetTopProcessesAsync(startTime, endTime, 5);
+
+            // Convert temperature data for charting
+            tempReadings = temperatures.Select(t => new TempReading
+            {
+                Timestamp = snapshots.FirstOrDefault(s => s.SnapshotId == t.SnapshotId)?.SnapshotTimestamp ?? DateTime.Now,
+                CpuTctlTdie = t.CpuTctlTdie,
+                CpuDieAverage = t.CpuDieAverage,
+                CpuCcd1Tdie = t.CpuCcd1Tdie,
+                CpuCcd2Tdie = t.CpuCcd2Tdie
+            }).ToList();
+
+            // Convert process data for charting
+            processMetrics = topProcesses.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.Select(m => new ProcessMetric
+                {
+                    Timestamp = m.timestamp,
+                    CpuUsage = m.cpuUsage,
+                    MemoryMb = m.memoryMb
+                }).ToList()
+            );
+        }
+        catch (Exception ex)
+        {
+            hasError = true;
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private class TempReading
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal? CpuTctlTdie { get; set; }
+        public decimal? CpuDieAverage { get; set; }
+        public decimal? CpuCcd1Tdie { get; set; }
+        public decimal? CpuCcd2Tdie { get; set; }
+    }
+
+    private class ProcessMetric
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal CpuUsage { get; set; }
+        public long MemoryMb { get; set; }
+    }
+}

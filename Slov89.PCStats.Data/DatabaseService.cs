@@ -12,8 +12,8 @@ public class DatabaseService : IDatabaseService
 
     public DatabaseService(IConfiguration configuration, ILogger<DatabaseService> logger)
     {
-        _connectionString = configuration.GetConnectionString("PostgreSQL") 
-            ?? throw new InvalidOperationException("PostgreSQL connection string not configured");
+        _connectionString = Environment.GetEnvironmentVariable("slov89_pc_stats_utility_pg") 
+            ?? throw new InvalidOperationException("slov89_pc_stats_utility_pg environment variable not set");
         _logger = logger;
     }
 
