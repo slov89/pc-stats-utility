@@ -62,6 +62,7 @@ slov89-pc-stats-utility/
 │   ├── appsettings.Development.json  # Development configuration
 │   └── PCStatsService.csproj         # Project file (.NET 10)
 │
+├── Set-ConnectionString.ps1          # Helper script to set connection string env var
 ├── Install-Service.ps1                # Installation script
 ├── Uninstall-Service.ps1             # Uninstallation script  
 ├── README.md                          # This file
@@ -112,13 +113,25 @@ psql -U postgres -d pc_stats_monitoring -f "Database\01_InitialSchema.sql"
 
 ### Step 2: Configure the Service
 
-Edit `PCStatsService\appsettings.json` and update the connection string:
+**Set the PostgreSQL connection string as an environment variable:**
+
+Open PowerShell as Administrator and run:
+
+```powershell
+.\Set-ConnectionString.ps1 -ConnectionString "Host=localhost;Port=5432;Database=pc_stats_monitoring;Username=postgres;Password=YOUR_PASSWORD"
+```
+
+This sets the `slov89_pc_stats_utility_pg` environment variable at the Machine level, making it:
+- Available to Windows services
+- Persistent across reboots
+- Secure (not stored in git)
+
+**Optional: Configure monitoring settings**
+
+Edit `PCStatsService\appsettings.json` if you want to change monitoring behavior:
 
 ```json
 {
-  "ConnectionStrings": {
-    "PostgreSQL": "Host=localhost;Port=5432;Database=pc_stats_monitoring;Username=postgres;Password=YOUR_PASSWORD"
-  },
   "MonitoringSettings": {
     "IntervalSeconds": 5,
     "EnableVRAMMonitoring": true,
@@ -128,6 +141,8 @@ Edit `PCStatsService\appsettings.json` and update the connection string:
   }
 }
 ```
+
+Note: The connection string is configured via environment variable, not in appsettings.json.
 
 ### Step 3: Configure HWiNFO (Optional)
 

@@ -3,6 +3,13 @@ using PCStatsService.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+// Load connection string from environment variable
+var pgConnectionString = Environment.GetEnvironmentVariable("slov89_pc_stats_utility_pg");
+if (!string.IsNullOrEmpty(pgConnectionString))
+{
+    builder.Configuration["ConnectionStrings:PostgreSQL"] = pgConnectionString;
+}
+
 // Configure services
 builder.Services.AddSingleton<IProcessMonitorService, ProcessMonitorService>();
 builder.Services.AddSingleton<IHWiNFOService, HWiNFOService>();
