@@ -96,6 +96,15 @@ TestResult.xml
 appsettings.local.json
 appsettings.*.local.json
 
+# Blazor / Static Web Assets
+**/*.blazor.boot.json
+**/staticwebassets.build.json
+**/staticwebassets.development.json
+**/staticwebassets*.json
+*.scp.css
+*.g.css
+scoped.styles.css
+
 # Publish profiles
 PublishProfiles/
 *.pubxml
@@ -111,3 +120,8 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Legacy/renamed project folders (if any exist)
+PCStatsUI/
+PCStatsService/
+PCStats.Models/
