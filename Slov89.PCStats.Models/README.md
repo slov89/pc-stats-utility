@@ -83,6 +83,60 @@ Represents CPU temperature readings from HWiNFO.
 
 **Corresponds to:** `cpu_temperatures` table
 
+## Offline Storage Models
+
+The following models support offline data storage when the database is unavailable:
+
+### OfflineSnapshotData
+Data structure for offline snapshot storage.
+
+**Properties:**
+- `TotalCpuUsage` (decimal?) - CPU usage percentage
+- `TotalMemoryMb` (long?) - Total memory in MB
+- `AvailableMemoryMb` (long?) - Available memory in MB
+- `Timestamp` (DateTime) - Snapshot timestamp (UTC)
+- `LocalSnapshotId` (long) - Local snapshot identifier
+
+### OfflineProcessData
+Data structure for offline process records.
+
+**Properties:**
+- `ProcessName` (string) - Process name
+- `ProcessPath` (string?) - Process path
+- `LocalProcessId` (int) - Local process identifier
+
+### OfflineProcessSnapshotData
+Data structure for offline process snapshot storage.
+
+**Properties:**
+- `LocalSnapshotId` (long) - Local snapshot ID reference
+- `LocalProcessId` (int) - Local process ID reference
+- `ProcessName` (string) - Process name
+- `ProcessPath` (string?) - Process path
+- `ProcessInfo` (ProcessInfo) - Full process metrics
+
+### OfflineCpuTemperatureData
+Data structure for offline CPU temperature storage.
+
+**Properties:**
+- `LocalSnapshotId` (long) - Local snapshot ID reference
+- `Temperature` (CpuTemperature) - Temperature readings
+
+### OfflineSnapshotBatch
+Container for all offline operations in a single snapshot cycle.
+
+**Properties:**
+- `BatchId` (Guid) - Unique batch identifier
+- `Timestamp` (DateTime) - Batch timestamp (UTC)
+- `LocalSnapshotId` (long) - Local snapshot identifier
+- `SnapshotData` (OfflineSnapshotData?) - System snapshot data
+- `ProcessSnapshots` (List<OfflineProcessSnapshotData>) - Process metrics
+- `CpuTemperature` (OfflineCpuTemperatureData?) - Temperature data
+- `RetryCount` (int) - Number of restore attempts
+- `ErrorMessage` (string?) - Last error message
+
+**Usage:** Serialized to JSON files in `C:\\ProgramData\\Slov89.PCStats.Service\\OfflineData\\` when database is offline.
+
 ## Usage
 
 Reference this project in your `.csproj`:

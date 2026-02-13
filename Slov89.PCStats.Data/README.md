@@ -26,6 +26,12 @@ Handles write operations for storing monitoring data.
 - `CreateCpuTemperatureAsync(snapshotId, temperature)` - Create CPU temperature record
 - `BatchCreateProcessSnapshotsAsync(snapshotId, processSnapshots)` - Batch insert process snapshots (transactional)
 
+**Offline Storage Methods:**
+- `IsConnectionAvailableAsync()` - Check if database connection is available
+- `RestoreOfflineSnapshotAsync(snapshotData)` - Restore snapshot from offline storage
+- `RestoreOfflineProcessAsync(processData)` - Restore process from offline storage
+- `RestoreOfflineSnapshotBatchAsync(batch)` - Restore entire snapshot batch (transactional)
+
 **Configuration:**
 - Reads connection string from `slov89_pc_stats_utility_pg` environment variable
 - Requires `IConfiguration` and `ILogger<DatabaseService>` via dependency injection
@@ -78,6 +84,23 @@ var temperatures = await _metricsService.GetCpuTemperaturesAsync(startTime, endT
 // Get top 5 processes
 var topProcesses = await _metricsService.GetTopProcessesAsync(startTime, endTime, 5);
 ```
+
+## Offline Storage Support
+
+The `DatabaseService` includes methods for restoring data from offline JSON storage when the database becomes available again.
+
+**Offline Recovery Flow:**
+1. Service detects database is offline
+2. Data saved to JSON files by `OfflineStorageService`
+3. When database reconnects, `OfflineDatabaseService` triggers recovery
+4. `RestoreOfflineSnapshotBatchAsync()` restores each batch transactionally
+5. Successfully restored batches are removed from offline storage
+
+**Key Features:**
+- Maintains referential integrity during restoration
+- Uses database transactions for atomicity
+- Preserves original timestamps from offline storage
+- Handles partial failures gracefully
 
 ## Environment Variables
 

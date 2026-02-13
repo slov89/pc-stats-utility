@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using Slov89.PCStats.Models;
@@ -8,6 +9,14 @@ public class HWiNFOService : IHWiNFOService
 {
     private readonly ILogger<HWiNFOService> _logger;
     private const string HWINFO_SHARED_MEM_NAME = "Global\\HWiNFO_SENS_SM2";
+    
+    // Known HWiNFO signatures (they can change between versions)
+    private static readonly uint[] KNOWN_HWINFO_SIGNATURES = {
+        0x53695748, // Current known signature
+        0x57494E48, // Previous signature
+        0x48574E49, // Another possible signature
+        0x48574946  // "HWIF" signature
+    };
     
     // HWiNFO Shared Memory structures
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -74,11 +83,14 @@ public class HWiNFOService : IHWiNFOService
                 _logger.LogWarning("HWiNFO is not running. CPU temperature data will not be available.");
                 return Task.FromResult<CpuTemperature?>(null);
             }
+            
+            _logger.LogDebug("HWiNFO process detected, attempting to read temperature data...");
 
             // Try to read from HWiNFO shared memory
             var temperatures = ReadFromHWiNFOSharedMemory();
             if (temperatures != null)
             {
+                _logger.LogDebug("Successfully read temperature data from HWiNFO shared memory");
                 return Task.FromResult<CpuTemperature?>(temperatures);
             }
 
@@ -106,25 +118,29 @@ public class HWiNFOService : IHWiNFOService
 
         try
         {
-            _logger.LogDebug("Opening HWiNFO shared memory...");
+            _logger.LogDebug("Opening HWiNFO shared memory: {SharedMemName}", HWINFO_SHARED_MEM_NAME);
             using var mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting(
                 HWINFO_SHARED_MEM_NAME, 
                 System.IO.MemoryMappedFiles.MemoryMappedFileRights.Read);
 
             using var accessor = mmf.CreateViewAccessor(0, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read);
+            _logger.LogDebug("Successfully opened HWiNFO shared memory, reading header...");
 
             // Read header
             HWiNFO_SENSORS_SHARED_MEM2 header;
             accessor.Read(0, out header);
 
-            // Validate signature (HWiNFO uses 0x53695748)
-            if (header.dwSignature != 0x53695748)
+            // Validate signature against known HWiNFO signatures
+            if (!KNOWN_HWINFO_SIGNATURES.Contains(header.dwSignature))
             {
-                _logger.LogWarning("Invalid HWiNFO shared memory signature: 0x{Signature:X}", header.dwSignature);
+                _logger.LogWarning("Unknown HWiNFO shared memory signature: 0x{ActualSignature:X8}. Known signatures: {KnownSignatures}", 
+                    header.dwSignature, string.Join(", ", KNOWN_HWINFO_SIGNATURES.Select(s => $"0x{s:X8}")));
+                _logger.LogInformation("If this is a newer HWiNFO version, please add signature 0x{NewSignature:X8} to the known signatures list", header.dwSignature);
                 return null;
             }
 
-            _logger.LogDebug("HWiNFO shared memory opened. Reading {Count} sensors...", header.dwNumReadingElements);
+            _logger.LogDebug("HWiNFO shared memory opened successfully with signature 0x{Signature:X8}. Reading {Count} sensors...", 
+                header.dwSignature, header.dwNumReadingElements);
 
             // Read temperature readings
             int tempSensorsFound = 0;

@@ -4,11 +4,12 @@
 @using Slov89.PCStats.Models
 @using ApexCharts
 @inject IMetricsService MetricsService
+@implements IDisposable
 @rendermode InteractiveServer
 
-<PageTitle>System Metrics</PageTitle>
+<PageTitle>Dashboard</PageTitle>
 
-<h1>System Metrics</h1>
+<h1>Dashboard</h1>
 
 <div class="row mb-3">
     <div class="col-md-12">
@@ -21,6 +22,7 @@
         <button type="button" class="btn btn-success ms-3" @onclick="RefreshData">
             <span class="bi bi-arrow-clockwise"></span> Refresh
         </button>
+        <span class="ms-2 text-muted">Next refresh in @secondsUntilRefresh seconds</span>
     </div>
 </div>
 
@@ -60,17 +62,27 @@ else
                     <h5 class="mb-0">System CPU Usage</h5>
                 </div>
                 <div class="card-body">
-                    <ApexChart TItem="Snapshot"
-                               Title="CPU Usage Over Time"
+                    <ApexChart TItem="CpuMetric"
+                               Title="CPU Usage vs Thermal Limit"
                                Options="cpuChartOptions"
                                Height="300">
-                        <ApexPointSeries TItem="Snapshot"
-                                         Items="snapshots"
+                        <ApexPointSeries TItem="CpuMetric"
+                                         Items="cpuMetrics"
                                          Name="CPU %"
                                          SeriesType="SeriesType.Area"
-                                         XValue="@(e => e.SnapshotTimestamp)"
-                                         YAggregate="@(e => e.Sum(x => x.TotalCpuUsage ?? 0))"
+                                         XValue="@(e => e.Timestamp)"
+                                         YAggregate="@(e => e.Sum(x => x.CpuUsage ?? 0))"
                                          OrderBy="@(e => e.X)" />
+                        @if (cpuMetrics.Any(m => m.ThermalLimitPercent.HasValue))
+                        {
+                            <ApexPointSeries TItem="CpuMetric"
+                                             Items="cpuMetrics.Where(m => m.ThermalLimitPercent.HasValue)"
+                                             Name="Thermal Limit %"
+                                             SeriesType="SeriesType.Line"
+                                             XValue="@(e => e.Timestamp)"
+                                             YAggregate="@(e => e.Sum(x => x.ThermalLimitPercent ?? 0))"
+                                             OrderBy="@(e => e.X)" />
+                        }
                     </ApexChart>
                 </div>
             </div>
@@ -208,18 +220,22 @@ else
     private List<CpuTemperature> temperatures = new();
     private Dictionary<string, List<ProcessMetric>> processMetrics = new();
     private List<TempReading> tempReadings = new();
+    private List<CpuMetric> cpuMetrics = new();
     private int selectedMinutes = 10;
     private bool isLoading = true;
     private bool hasError = false;
     private string errorMessage = string.Empty;
+    private System.Threading.Timer? refreshTimer;
+    private int secondsUntilRefresh = 15;
+    private const int RefreshIntervalSeconds = 15;
 
-    private ApexChartOptions<Snapshot> cpuChartOptions = new()
+    private ApexChartOptions<CpuMetric> cpuChartOptions = new()
     {
         Chart = new Chart { Toolbar = new Toolbar { Show = false } },
         Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
         Xaxis = new XAxis { Type = XAxisType.Datetime },
-        Yaxis = new List<YAxis> { new YAxis { Min = 0, Max = 100, Title = new AxisTitle { Text = "CPU %" } } },
-        Colors = new List<string> { "#008FFB" }
+        Yaxis = new List<YAxis> { new YAxis { Min = 0, Max = 100, Title = new AxisTitle { Text = "Percentage (%)" } } },
+        Colors = new List<string> { "#008FFB", "#FF4560" }
     };
 
     private ApexChartOptions<Snapshot> memoryChartOptions = new()
@@ -251,17 +267,50 @@ else
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+        StartAutoRefreshTimer();
+    }
+
+    private void StartAutoRefreshTimer()
+    {
+        secondsUntilRefresh = RefreshIntervalSeconds;
+        refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            secondsUntilRefresh--;
+            
+            if (secondsUntilRefresh <= 0)
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadData();
+                    secondsUntilRefresh = RefreshIntervalSeconds;
+                });
+            }
+            
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
     private async Task SelectTimeRange(int minutes)
     {
         selectedMinutes = minutes;
         await LoadData();
+        ResetRefreshTimer();
     }
 
     private async Task RefreshData()
     {
         await LoadData();
+        ResetRefreshTimer();
+    }
+
+    private void ResetRefreshTimer()
+    {
+        secondsUntilRefresh = RefreshIntervalSeconds;
+    }
+
+    public void Dispose()
+    {
+        refreshTimer?.Dispose();
     }
 
     private async Task LoadData()
@@ -288,6 +337,14 @@ else
                 CpuDieAverage = t.CpuDieAverage,
                 CpuCcd1Tdie = t.CpuCcd1Tdie,
                 CpuCcd2Tdie = t.CpuCcd2Tdie
+            }).ToList();
+
+            // Combine CPU usage and thermal limit data
+            cpuMetrics = snapshots.Select(s => new CpuMetric
+            {
+                Timestamp = s.SnapshotTimestamp,
+                CpuUsage = s.TotalCpuUsage,
+                ThermalLimitPercent = temperatures.FirstOrDefault(t => t.SnapshotId == s.SnapshotId)?.ThermalLimitPercent
             }).ToList();
 
             // Convert process data for charting
@@ -320,6 +377,13 @@ else
         public decimal? CpuDieAverage { get; set; }
         public decimal? CpuCcd1Tdie { get; set; }
         public decimal? CpuCcd2Tdie { get; set; }
+    }
+
+    private class CpuMetric
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal? CpuUsage { get; set; }
+        public decimal? ThermalLimitPercent { get; set; }
     }
 
     private class ProcessMetric

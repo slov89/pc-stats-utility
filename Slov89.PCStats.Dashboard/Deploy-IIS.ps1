@@ -84,16 +84,29 @@ Write-Host ""
 
 # Check if website exists and stop it
 if (Get-Website -Name $SiteName -ErrorAction SilentlyContinue) {
-    Write-Host "Stopping existing website..." -ForegroundColor Yellow
-    Stop-Website -Name $SiteName
-    Start-Sleep -Seconds 2
+    $website = Get-Website -Name $SiteName
+    if ($website.State -eq "Started") {
+        Write-Host "Stopping existing website..." -ForegroundColor Yellow
+        Stop-Website -Name $SiteName -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
 }
 
 # Check if app pool exists and stop it
 if (Test-Path "IIS:\AppPools\$AppPoolName") {
-    Write-Host "Stopping existing application pool..." -ForegroundColor Yellow
-    Stop-WebAppPool -Name $AppPoolName
-    Start-Sleep -Seconds 2
+    try {
+        $appPool = Get-IISAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
+        if ($appPool -and $appPool.State -eq "Started") {
+            Write-Host "Stopping existing application pool..." -ForegroundColor Yellow
+            Stop-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+        }
+    } catch {
+        # Fallback for older PowerShell versions
+        Write-Host "Stopping existing application pool..." -ForegroundColor Yellow
+        Stop-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
 }
 
 # Build and publish
@@ -156,12 +169,52 @@ Write-Host ""
 # Start application pool
 Write-Host "Starting application pool..." -ForegroundColor Cyan
 Start-WebAppPool -Name $AppPoolName
-Start-Sleep -Seconds 2
+
+# Wait for app pool to start (up to 30 seconds)
+$timeout = 30
+$elapsed = 0
+do {
+    Start-Sleep -Seconds 1
+    $elapsed++
+    try {
+        $appPoolState = (Get-IISAppPool -Name $AppPoolName -ErrorAction SilentlyContinue).State
+    } catch {
+        $appPoolState = "Unknown"
+    }
+    if ($elapsed -gt $timeout) {
+        Write-Host "Warning: App pool did not start within $timeout seconds. Current state: $appPoolState" -ForegroundColor Yellow
+        break
+    }
+} while ($appPoolState -ne "Started")
+
+if ($appPoolState -eq "Started") {
+    Write-Host "Application pool started successfully." -ForegroundColor Green
+}
 
 # Start website
 Write-Host "Starting website..." -ForegroundColor Cyan
 Start-Website -Name $SiteName
-Start-Sleep -Seconds 2
+
+# Wait for website to start (up to 15 seconds)
+$timeout = 15
+$elapsed = 0
+do {
+    Start-Sleep -Seconds 1
+    $elapsed++
+    try {
+        $websiteState = (Get-Website -Name $SiteName -ErrorAction SilentlyContinue).State
+    } catch {
+        $websiteState = "Unknown"
+    }
+    if ($elapsed -gt $timeout) {
+        Write-Host "Warning: Website did not start within $timeout seconds. Current state: $websiteState" -ForegroundColor Yellow
+        break
+    }
+} while ($websiteState -ne "Started")
+
+if ($websiteState -eq "Started") {
+    Write-Host "Website started successfully." -ForegroundColor Green
+}
 
 # Configure web.config for better error logging
 $webConfigPath = Join-Path $InstallPath "web.config"
@@ -179,10 +232,49 @@ if (Test-Path $webConfigPath) {
             Write-Host "Updated web.config for debugging." -ForegroundColor Green
             
             # Restart app pool to pick up changes
+            Write-Host "Restarting application pool for web.config changes..." -ForegroundColor Cyan
             Stop-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
+            
+            # Wait for app pool to stop
+            $timeout = 15
+            $elapsed = 0
+            do {
+                Start-Sleep -Seconds 1
+                $elapsed++
+                try {
+                    $appPoolState = (Get-IISAppPool -Name $AppPoolName -ErrorAction SilentlyContinue).State
+                } catch {
+                    $appPoolState = "Unknown"
+                }
+                if ($elapsed -gt $timeout) {
+                    Write-Host "Warning: App pool did not stop within $timeout seconds." -ForegroundColor Yellow
+                    break
+                }
+            } while ($appPoolState -ne "Stopped" -and $appPoolState -ne "Unknown")
+            
+            # Start app pool
             Start-WebAppPool -Name $AppPoolName
-            Write-Host "Restarted application pool." -ForegroundColor Green
+            
+            # Wait for app pool to start
+            $timeout = 30
+            $elapsed = 0
+            do {
+                Start-Sleep -Seconds 1
+                $elapsed++
+                try {
+                    $appPoolState = (Get-IISAppPool -Name $AppPoolName -ErrorAction SilentlyContinue).State
+                } catch {
+                    $appPoolState = "Unknown"
+                }
+                if ($elapsed -gt $timeout) {
+                    Write-Host "Warning: App pool did not start within $timeout seconds after restart." -ForegroundColor Yellow
+                    break
+                }
+            } while ($appPoolState -ne "Started")
+            
+            if ($appPoolState -eq "Started") {
+                Write-Host "Application pool restarted successfully." -ForegroundColor Green
+            }
         }
     } catch {
         Write-Host "Warning: Could not update web.config - $($_.Exception.Message)" -ForegroundColor Yellow

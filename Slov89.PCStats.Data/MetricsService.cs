@@ -25,6 +25,10 @@ public class MetricsService : IMetricsService
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
 
+            // Convert local time parameters to UTC for database query
+            var startTimeUtc = startTime.ToUniversalTime();
+            var endTimeUtc = endTime.ToUniversalTime();
+
             const string sql = @"
                 SELECT snapshot_id, snapshot_timestamp, total_cpu_usage, 
                        total_memory_usage_mb, total_available_memory_mb
@@ -34,16 +38,20 @@ public class MetricsService : IMetricsService
                 ORDER BY snapshot_timestamp ASC";
 
             await using var command = new NpgsqlCommand(sql, connection);
-            command.Parameters.AddWithValue("startTime", startTime);
-            command.Parameters.AddWithValue("endTime", endTime);
+            command.Parameters.AddWithValue("startTime", startTimeUtc);
+            command.Parameters.AddWithValue("endTime", endTimeUtc);
 
             await using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
+                var timestamp = reader.GetDateTime(1);
+                // Convert from UTC to local time for display
+                var localTimestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime();
+                
                 snapshots.Add(new Snapshot
                 {
                     SnapshotId = reader.GetInt64(0),
-                    SnapshotTimestamp = reader.GetDateTime(1),
+                    SnapshotTimestamp = localTimestamp,
                     TotalCpuUsage = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
                     TotalMemoryUsageMb = reader.IsDBNull(3) ? null : reader.GetInt64(3),
                     TotalAvailableMemoryMb = reader.IsDBNull(4) ? null : reader.GetInt64(4)
@@ -67,6 +75,10 @@ public class MetricsService : IMetricsService
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
 
+            // Convert local time parameters to UTC for database query
+            var startTimeUtc = startTime.ToUniversalTime();
+            var endTimeUtc = endTime.ToUniversalTime();
+
             const string sql = @"
                 SELECT t.temp_id, t.snapshot_id, t.cpu_tctl_tdie, t.cpu_die_average,
                        t.cpu_ccd1_tdie, t.cpu_ccd2_tdie, t.thermal_limit_percent, 
@@ -78,8 +90,8 @@ public class MetricsService : IMetricsService
                 ORDER BY s.snapshot_timestamp ASC";
 
             await using var command = new NpgsqlCommand(sql, connection);
-            command.Parameters.AddWithValue("startTime", startTime);
-            command.Parameters.AddWithValue("endTime", endTime);
+            command.Parameters.AddWithValue("startTime", startTimeUtc);
+            command.Parameters.AddWithValue("endTime", endTimeUtc);
 
             await using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -115,6 +127,10 @@ public class MetricsService : IMetricsService
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
 
+            // Convert local time parameters to UTC for database query
+            var startTimeUtc = startTime.ToUniversalTime();
+            var endTimeUtc = endTime.ToUniversalTime();
+
             // Get top processes by average CPU usage
             const string topProcessesSql = @"
                 SELECT p.process_name, 
@@ -130,8 +146,8 @@ public class MetricsService : IMetricsService
                 LIMIT @topCount";
 
             await using var topCommand = new NpgsqlCommand(topProcessesSql, connection);
-            topCommand.Parameters.AddWithValue("startTime", startTime);
-            topCommand.Parameters.AddWithValue("endTime", endTime);
+            topCommand.Parameters.AddWithValue("startTime", startTimeUtc);
+            topCommand.Parameters.AddWithValue("endTime", endTimeUtc);
             topCommand.Parameters.AddWithValue("topCount", topCount);
 
             var topProcessNames = new List<string>();
@@ -159,16 +175,20 @@ public class MetricsService : IMetricsService
 
                 await using var metricsCommand = new NpgsqlCommand(metricsSql, connection);
                 metricsCommand.Parameters.AddWithValue("processName", processName);
-                metricsCommand.Parameters.AddWithValue("startTime", startTime);
-                metricsCommand.Parameters.AddWithValue("endTime", endTime);
+                metricsCommand.Parameters.AddWithValue("startTime", startTimeUtc);
+                metricsCommand.Parameters.AddWithValue("endTime", endTimeUtc);
 
                 var metrics = new List<(DateTime, decimal, long)>();
                 await using (var reader = await metricsCommand.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
                     {
+                        var timestamp = reader.GetDateTime(0);
+                        // Convert from UTC to local time for display
+                        var localTimestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime();
+                        
                         metrics.Add((
-                            reader.GetDateTime(0),
+                            localTimestamp,
                             reader.GetDecimal(1),
                             reader.GetInt64(2)
                         ));

@@ -1,4 +1,4 @@
-# Uninstall PC Stats Monitoring Service
+# Uninstall Slov89.PCStats.Service
 # Run this script as Administrator
 
 param(
@@ -14,7 +14,7 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     exit 1
 }
 
-Write-Host "Uninstalling PC Stats Monitoring Service..." -ForegroundColor Cyan
+Write-Host "Uninstalling Slov89.PCStats.Service..." -ForegroundColor Cyan
 
 # Check if service exists
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
@@ -26,6 +26,16 @@ if (-not $service) {
         Write-Host "Stopping service..." -ForegroundColor Yellow
         Stop-Service -Name $ServiceName -Force
         Start-Sleep -Seconds 2
+    }
+    
+    # Kill any leftover PCStats processes
+    Write-Host "Checking for running PCStats processes..." -ForegroundColor Yellow
+    $runningProcesses = Get-Process "*PCStats*" -ErrorAction SilentlyContinue
+    if ($runningProcesses) {
+        Write-Host "Found $($runningProcesses.Count) running PCStats process(es). Terminating..." -ForegroundColor Yellow
+        $runningProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Write-Host "PCStats processes terminated." -ForegroundColor Green
     }
     
     # Delete the service

@@ -1,4 +1,4 @@
-# Install PC Stats Monitoring Service
+# Install Slov89.PCStats.Service
 # Run this script as Administrator
 
 param(
@@ -13,7 +13,7 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     exit 1
 }
 
-Write-Host "Installing PC Stats Monitoring Service..." -ForegroundColor Cyan
+Write-Host "Installing Slov89.PCStats.Service..." -ForegroundColor Cyan
 
 # Check if service already exists and stop it before building
 $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
@@ -21,6 +21,16 @@ if ($existingService) {
     Write-Host "Service already exists. Stopping..." -ForegroundColor Yellow
     Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
+}
+
+# Kill any leftover PCStats processes that might be running outside service control
+Write-Host "Checking for running PCStats processes..." -ForegroundColor Yellow
+$runningProcesses = Get-Process "*PCStats*" -ErrorAction SilentlyContinue
+if ($runningProcesses) {
+    Write-Host "Found $($runningProcesses.Count) running PCStats process(es). Terminating..." -ForegroundColor Yellow
+    $runningProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Write-Host "PCStats processes terminated." -ForegroundColor Green
 }
 
 # Build and publish the service
@@ -65,20 +75,17 @@ Write-Host "   (Use Set-ConnectionString.ps1 in the root folder)" -ForegroundCol
 Write-Host "2. Ensure PostgreSQL database is set up (see Database\README.md)" -ForegroundColor Yellow
 Write-Host "3. Install and configure HWiNFO v8.14 with shared memory enabled" -ForegroundColor Yellow
 
-$startNow = Read-Host "`nDo you want to start the service now? (y/n)"
-if ($startNow -eq 'y' -or $startNow -eq 'Y') {
-    Write-Host "Starting service..." -ForegroundColor Yellow
-    Start-Service -Name $ServiceName
-    
-    Start-Sleep -Seconds 2
-    $status = Get-Service -Name $ServiceName
-    
-    if ($status.Status -eq 'Running') {
-        Write-Host "Service started successfully!" -ForegroundColor Green
-    } else {
-        Write-Warning "Service did not start. Check Event Viewer for errors."
-        Write-Host "Service status: $($status.Status)" -ForegroundColor Yellow
-    }
+Write-Host "`nStarting service..." -ForegroundColor Yellow
+Start-Service -Name $ServiceName
+
+Start-Sleep -Seconds 2
+$status = Get-Service -Name $ServiceName
+
+if ($status.Status -eq 'Running') {
+    Write-Host "Service started successfully!" -ForegroundColor Green
+} else {
+    Write-Warning "Service did not start. Check Event Viewer for errors."
+    Write-Host "Service status: $($status.Status)" -ForegroundColor Yellow
 }
 
 Write-Host "`nService management commands:" -ForegroundColor Cyan

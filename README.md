@@ -21,6 +21,8 @@ Data is stored in PostgreSQL with an efficient normalized schema, indexed for fa
 - **Real-time Dashboard**: Interactive web UI with charts for CPU, memory, temperatures, and top processes
 - **Time Range Filtering**: View metrics for 5, 10, 30, or 60 minutes
 - **Storage Optimization**: ~92% storage reduction with CPU threshold filtering
+- **Offline Storage**: Automatically saves data to JSON files when database is unavailable, with automatic recovery
+- **Zero Data Loss**: Continuous monitoring even during database outages
 - **Windows Service**: Runs in background, starts with Windows
 
 ## Quick Start
@@ -68,6 +70,19 @@ See [Slov89.PCStats.Dashboard/README.md](Slov89.PCStats.Dashboard/README.md) for
 - **.NET 10 SDK** (for building) or .NET 10 Runtime (for running)
 - **PostgreSQL 12+** database server
 - **HWiNFO v8.14** (optional, for CPU temperature monitoring)
+
+## Architecture Highlights
+
+### Offline Storage & Recovery
+
+The service includes robust offline storage capabilities:
+
+- **Automatic Detection**: Detects database connection failures automatically
+- **Local Storage**: Saves snapshots to JSON files in `C:\ProgramData\Slov89.PCStats.Service\OfflineData\`
+- **Automatic Recovery**: When database reconnects, all offline data is restored in chronological order
+- **Data Integrity**: Maintains all relationships between snapshots, processes, and temperatures
+- **Configurable Retention**: Old offline files auto-cleaned after 7 days (configurable)
+- **Zero Data Loss**: Monitoring continues uninterrupted during database outages
 
 ## Solution Structure
 
@@ -124,6 +139,8 @@ Background Windows service that:
 2. Enumerates running processes and their metrics
 3. Reads CPU temperatures from HWiNFO (if running)
 4. Stores data in PostgreSQL via DatabaseService
+5. Automatically saves to offline JSON storage if database is unavailable
+6. Restores offline data when database reconnects
 
 #### Slov89.PCStats.Dashboard
 Blazor Server web application that:
@@ -201,12 +218,21 @@ Both Service and Dashboard read the connection string from:
 
 ### Check Service Status
 ```powershell
-Get-Service Slov89PCStatsService
+Get-Service Slov89.PCStats.Service
 ```
 
 ### View Service Logs
 1. Event Viewer → Windows Logs → Application
-2. Filter by source: "Slov89PCStatsService"
+2. Filter by source: "Slov89.PCStats.Service"
+
+### Check Offline Storage
+```powershell
+# View offline data files
+Get-ChildItem "C:\ProgramData\Slov89.PCStats.Service\OfflineData" -Filter "*.json"
+
+# Count pending offline snapshots
+(Get-ChildItem "C:\ProgramData\Slov89.PCStats.Service\OfflineData" -Filter "snapshot_*.json").Count
+```
 
 ### Access Dashboard
 Navigate to `https://localhost:5001` (or configured URL)
@@ -242,6 +268,15 @@ See [Database/README.md](Database/README.md)
 - Test database connection: `psql -U postgres -d pcstats`
 
 ## Version History
+
+### v2.1 - Offline Storage & Recovery
+- Added automatic offline storage when database is unavailable
+- Automatic bulk restoration of offline data when database reconnects
+- Zero data loss during database outages
+- Configurable offline file retention (default: 7 days)
+- JSON-based offline storage in `C:\ProgramData\Slov89.PCStats.Service\OfflineData`
+- Retry logic with automatic cleanup
+- Enhanced logging for offline/recovery operations
 
 ### v2.0 - Multi-project refactor and dashboard
 - Reorganized into multi-project solution (Models, Data, Service, Dashboard)

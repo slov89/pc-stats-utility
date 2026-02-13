@@ -10,4 +10,10 @@ public interface IDatabaseService
     Task CreateProcessSnapshotAsync(long snapshotId, int processId, ProcessInfo processInfo);
     Task CreateCpuTemperatureAsync(long snapshotId, CpuTemperature temperature);
     Task TestConnectionAsync();
+    
+    // Offline storage recovery methods
+    Task<bool> IsConnectionAvailableAsync();
+    Task<long> RestoreOfflineSnapshotAsync(OfflineSnapshotData snapshotData);
+    Task<int> RestoreOfflineProcessAsync(OfflineProcessData processData);
+    Task RestoreOfflineSnapshotBatchAsync(OfflineSnapshotBatch batch);
 }

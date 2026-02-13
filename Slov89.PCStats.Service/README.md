@@ -17,6 +17,9 @@ Data is stored in PostgreSQL for analysis and visualization.
 - **Smart Filtering**: Only saves detailed metrics for processes with CPU usage >= threshold (default 5%)
 - **Process Tracking**: All processes tracked in database, regardless of threshold
 - **HWiNFO Integration**: Optional CPU temperature monitoring
+- **Offline Storage**: Automatic fallback to local JSON storage when database is unavailable
+- **Automatic Recovery**: Bulk restoration of offline data when database reconnects
+- **Zero Data Loss**: Continuous monitoring even during database outages
 - **Windows Service**: Runs in background, starts with Windows
 - **Configurable**: All settings in `appsettings.json`
 
@@ -29,6 +32,7 @@ Collects process information and performance metrics.
 
 **Methods:**
 - `GetRunningProcessesAsync()` - Enumerate all running processes
+- `GetSystemCpuUsageAsync()` - Get total system CPU usage
 - Internal: CPU usage calculation, VRAM detection, performance counter reading
 
 #### HWiNFOService
@@ -36,7 +40,29 @@ Reads CPU temperature data from HWiNFO shared memory.
 
 **Methods:**
 - `GetCpuTemperaturesAsync()` - Read current CPU temperatures
+- `IsHWiNFORunning()` - Check if HWiNFO is running
 - Falls back to registry if shared memory unavailable
+
+#### OfflineStorageService
+Manages offline data storage when database is unavailable.
+
+**Methods:**
+- `SaveOfflineSnapshotAsync()` - Save snapshot batch to JSON file
+- `GetPendingOfflineSnapshotsAsync()` - Retrieve all pending offline snapshots
+- `RemoveOfflineSnapshotAsync()` - Delete successfully restored snapshot
+- `GetNextLocalSnapshotId()` - Generate local snapshot IDs for offline mode
+- `CleanupOldOfflineDataAsync()` - Remove old offline files
+
+#### OfflineDatabaseService
+Wrapper around DatabaseService that adds offline storage capabilities.
+
+**Features:**
+- Detects database connection failures
+- Automatically switches to offline mode
+- Queues data in local JSON files
+- Monitors for database recovery
+- Bulk restores offline data when connection returns
+- Handles retry logic and error management
 
 #### Worker
 Main background service that orchestrates data collection.
@@ -45,7 +71,7 @@ Main background service that orchestrates data collection.
 1. Collect system metrics (CPU, memory)
 2. Collect all running processes
 3. Read CPU temperatures (if HWiNFO running)
-4. Create snapshot in database
+4. Create snapshot in database (or offline storage)
 5. Track all processes in `processes` table
 6. Filter processes by CPU threshold
 7. Save detailed metrics for filtered processes
@@ -69,8 +95,11 @@ This sets the `slov89_pc_stats_utility_pg` environment variable.
 {
   "Logging": {
     "LogLevel": {
-      "Default": "Information",
-      "Slov89.PCStats.Service": "Information"
+      "Default": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information",
+      "Slov89.PCStats.Service": "Warning",
+      "Slov89.PCStats.Service.Services.OfflineStorageService": "Information",
+      "Slov89.PCStats.Service.Services.OfflineDatabaseService": "Information"
     }
   },
   "MonitoringSettings": {
@@ -78,15 +107,59 @@ This sets the `slov89_pc_stats_utility_pg` environment variable.
     "EnableVRAMMonitoring": true,
     "EnableCPUTemperatureMonitoring": true,
     "MinimumCpuUsagePercent": 5.0
+  },
+  "OfflineStorage": {
+    "Path": "C:\\\\ProgramData\\\\Slov89.PCStats.Service\\\\OfflineData",
+    "MaxRetentionDays": 7,
+    "EnableOfflineMode": true
   }
 }
 ```
 
-**Settings:**
-- `IntervalSeconds` - Collection interval (default: 5)
+**Monitoring Settings:**
+- `IntervalSeconds` - Collection interval in seconds (default: 5)
 - `EnableVRAMMonitoring` - Enable VRAM tracking (may not work on all GPUs)
 - `EnableCPUTemperatureMonitoring` - Enable HWiNFO temperature monitoring
 - `MinimumCpuUsagePercent` - CPU threshold for detailed metrics (0 = all processes)
+
+**Offline Storage Settings:**
+- `Path` - Directory for offline JSON files (default: `C:\\ProgramData\\Slov89.PCStats.Service\\OfflineData`)
+- `MaxRetentionDays` - How long to keep offline files before cleanup (default: 7 days)
+- `EnableOfflineMode` - Enable offline storage fallback (default: true)
+
+## Offline Storage
+
+### How It Works
+
+When the database connection is lost, the service automatically:
+
+1. **Detects Failure**: Database operations throw exceptions
+2. **Switches to Offline Mode**: All data saved to local JSON files
+3. **Continues Monitoring**: No interruption to data collection
+4. **Monitors for Recovery**: Checks connection on each operation
+5. **Restores Data**: When connection returns, bulk restores all offline data
+6. **Cleans Up**: Removes successfully restored files
+
+### Storage Location
+
+Default: `C:\\ProgramData\\Slov89.PCStats.Service\\OfflineData\\`
+
+Files are named: `snapshot_{BatchId}{Timestamp}.json`
+
+### Data Retention
+
+- Offline files are automatically cleaned up after `MaxRetentionDays` (default: 7 days)
+- Successfully restored files are deleted immediately
+- Failed batches retry up to 3 times before being discarded
+
+### Recovery Process
+
+The service automatically:
+- Restores snapshots in chronological order
+- Maintains all relationships (processes, temperatures)
+- Uses database transactions for data integrity
+- Logs detailed recovery progress
+- Handles partial failures gracefully
 
 ## Installation
 
