@@ -5,11 +5,12 @@ Blazor Server web application for real-time visualization of PC performance metr
 ## Overview
 
 Interactive web dashboard providing:
-- **Real-time charts** of system CPU and memory usage
-- **CPU temperature graphs** (if HWiNFO data available)
+- **Combined CPU/Temperature chart** showing usage percentages and temperature readings
+- **Memory usage chart** with area visualization
 - **Top processes tracking** with historical CPU usage
-- **Time range filtering** (5, 10, 30, 60 minutes)
-- **Summary statistics** (averages, peaks, data points)
+- **Flexible time ranges** (5min, 10min, 30min, 1hr, 3hr, 6hr, 12hr, 24hr)
+- **Auto-refresh** for short time ranges (≤1 hour)
+- **Comprehensive statistics** (10 metrics: avg/min/peak for CPU, temp, memory)
 
 ## Features
 
@@ -17,23 +18,32 @@ Interactive web dashboard providing:
 
 The main dashboard provides interactive visualization:
 
-#### System Metrics
-- **CPU Usage Chart** - Area chart showing total system CPU percentage over time
-- **Memory Usage Chart** - Area chart displaying memory consumption in MB
+#### Combined CPU & Temperature Chart
+- **Full-width chart** combining four metrics:
+  - CPU Usage % (line chart)
+  - Thermal Limit % (line chart)
+  - CPU Tctl/Tdie temperature (line chart)
+  - CPU Die Average temperature (line chart)
+- **Shared tooltips** displaying all four values simultaneously
 
-#### CPU Temperatures
-- **Temperature Charts** - Line charts for:
-  - CPU Tctl/Tdie (main temperature sensor)
-  - CPU Die Average
-  - CCD1/CCD2 die temperatures (if available)
+#### Memory Usage
+- **Memory Usage Chart** - Area chart displaying memory consumption in MB over time
 
 #### Process Analysis
 - **Top Processes Chart** - Multi-line chart showing CPU usage over time for top 5 processes by average CPU
 
 #### Interactive Controls
-- **Time Range Selector** - Buttons for 5, 10, 30, or 60 minutes (default: 10 minutes)
-- **Refresh Button** - Manually update all charts
-- **Summary Stats** - Display average CPU, peak CPU, average memory, data point count
+- **Time Range Selector** - Eight time ranges: 5min, 10min, 30min, 1hr, 3hr, 6hr, 12hr, 24hr (default: 10 minutes)
+- **Auto-Refresh** - Automatically enabled for time ranges ≤1 hour, disabled for ≥3 hours
+- **Manual Refresh Button** - Update all charts on demand
+- **Countdown Timer** - Shows "Updates in X seconds" when auto-refresh is active
+
+#### Summary Statistics
+Comprehensive panel displaying 10 key metrics:
+- **CPU Usage**: Average, Minimum, Peak
+- **CPU Temperature**: Average, Minimum, Peak (in °C)
+- **Memory**: Average, Minimum, Peak (in MB)
+- **Data Points**: Total snapshot count for selected time range
 
 #### Chart Features
 - Hover over data points for details
@@ -162,12 +172,14 @@ Uses `IMetricsService` from `Slov89.PCStats.Data` for database queries.
 
 ### Data Flow
 
-1. User selects time range (5/10/30/60 minutes)
-2. Metrics page calls `IMetricsService` methods
-3. Service queries PostgreSQL for time-filtered data
-4. Data transformed for ApexCharts
-5. Interactive charts rendered
-6. User can refresh or change time range
+1. User selects time range (5min to 24hr) or clicks refresh
+2. Auto-refresh timer triggers updates for short ranges (\u22641 hour)
+3. Metrics page calls `IMetricsService` methods with time range parameters
+4. Service queries PostgreSQL for time-filtered data
+5. Data transformed into unified models for ApexCharts (e.g., CpuTempMetric combines CPU usage and temperature)
+6. Interactive charts rendered with shared tooltips and synchronized time axes
+7. Summary statistics calculated and displayed
+8. Auto-refresh countdown updates every second when enabled
 
 ## Dependencies
 
@@ -212,10 +224,14 @@ Run with debugger attached (F5 in Visual Studio / VS Code).
 
 ### Changing Time Ranges
 
+Current time ranges are: 5min, 10min, 30min, 1hr, 3hr, 6hr, 12hr, 24hr
+
 Edit button values in `Metrics.razor`:
 ```razor
 <button @onclick="() => SelectTimeRange(15)">15 Minutes</button>
 ```
+
+The `SelectTimeRange` method automatically enables auto-refresh for ranges \u22641 hour and disables it for \u22653 hours.
 
 ### Styling
 

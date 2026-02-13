@@ -18,8 +18,10 @@ Data is stored in PostgreSQL with an efficient normalized schema, indexed for fa
 - **Automated Monitoring**: Collects system and process metrics every 5 seconds
 - **Smart Filtering**: Only saves detailed metrics for processes with CPU usage >= threshold (default 5%)
 - **CPU Temperature Tracking**: Integrates with HWiNFO v8.14 for AMD CPU temperature sensors
-- **Real-time Dashboard**: Interactive web UI with charts for CPU, memory, temperatures, and top processes
-- **Time Range Filtering**: View metrics for 5, 10, 30, or 60 minutes
+- **Real-time Dashboard**: Interactive web UI with combined CPU/temperature charts, memory graphs, and top processes
+- **Flexible Time Ranges**: View metrics from 5 minutes to 24 hours (5min, 10min, 30min, 1hr, 3hr, 6hr, 12hr, 24hr)
+- **Auto-Refresh**: Automatic updates for short time ranges (≤1 hour), manual refresh for longer ranges
+- **Comprehensive Statistics**: 10 metrics including averages, minimums, and peaks for CPU, temperature, and memory
 - **Storage Optimization**: ~92% storage reduction with CPU threshold filtering
 - **Offline Storage**: Automatically saves data to JSON files when database is unavailable, with automatic recovery
 - **Zero Data Loss**: Continuous monitoring even during database outages
@@ -145,9 +147,10 @@ Background Windows service that:
 #### Slov89.PCStats.Dashboard
 Blazor Server web application that:
 1. Queries metrics data via MetricsService
-2. Displays interactive charts (ApexCharts)
-3. Allows time range filtering (5/10/30/60 minutes)
-4. Shows real-time system performance
+2. Displays interactive charts (ApexCharts) with combined CPU/temperature visualization
+3. Allows time range filtering (5min to 24hr) with automatic refresh for short ranges
+4. Shows comprehensive statistics (10 metrics: avg/min/peak for CPU, temp, memory)
+5. Provides real-time system performance monitoring
 
 ## Technologies Used
 
@@ -268,6 +271,14 @@ See [Database/README.md](Database/README.md)
 - Test database connection: `psql -U postgres -d pcstats`
 
 ## Version History
+
+### v2.2 - Dashboard Enhancements
+- Combined CPU usage and temperature into single full-width chart with shared tooltips
+- Expanded time ranges: 5min, 10min, 30min, 1hr, 3hr, 6hr, 12hr, 24hr
+- Auto-refresh functionality for short time ranges (\u22641 hour)
+- Comprehensive summary statistics: 10 metrics (avg/min/peak for CPU, temp, memory)
+- Improved dark theme with optimized text colors
+- Enhanced chart interactivity and unified data models
 
 ### v2.1 - Offline Storage & Recovery
 - Added automatic offline storage when database is unavailable
