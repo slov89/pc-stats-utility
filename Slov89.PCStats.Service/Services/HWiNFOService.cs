@@ -61,12 +61,23 @@ public class HWiNFOService : IHWiNFOService
     {
         try
         {
-            var processes = System.Diagnostics.Process.GetProcessesByName("HWiNFO64");
-            if (processes.Length == 0)
+            // First check if shared memory exists (most reliable indicator that HWiNFO is running with sensors enabled)
+            try
             {
-                processes = System.Diagnostics.Process.GetProcessesByName("HWiNFO32");
+                using var mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting(
+                    HWINFO_SHARED_MEM_NAME, 
+                    System.IO.MemoryMappedFiles.MemoryMappedFileRights.Read);
+                return true; // If we can open the shared memory, HWiNFO is definitely running with sensors
             }
-            return processes.Length > 0;
+            catch
+            {
+                // Shared memory doesn't exist, fall back to process check
+            }
+
+            // Fallback: Check for any process containing "HWiNFO" (case-insensitive)
+            var allProcesses = System.Diagnostics.Process.GetProcesses();
+            return allProcesses.Any(p => p.ProcessName.Contains("HWiNFO", StringComparison.OrdinalIgnoreCase) || 
+                                         p.ProcessName.Contains("hwinfo", StringComparison.OrdinalIgnoreCase));
         }
         catch
         {
@@ -84,24 +95,27 @@ public class HWiNFOService : IHWiNFOService
                 return Task.FromResult<CpuTemperature?>(null);
             }
             
-            _logger.LogDebug("HWiNFO process detected, attempting to read temperature data...");
+            _logger.LogInformation("HWiNFO process detected, attempting to read temperature data...");
 
             // Try to read from HWiNFO shared memory
             var temperatures = ReadFromHWiNFOSharedMemory();
             if (temperatures != null)
             {
-                _logger.LogDebug("Successfully read temperature data from HWiNFO shared memory");
+                _logger.LogInformation("Successfully read temperature data from HWiNFO shared memory");
                 return Task.FromResult<CpuTemperature?>(temperatures);
             }
+
+            _logger.LogWarning("Failed to read from shared memory, trying registry fallback...");
 
             // Fallback: Try reading from Registry (older HWiNFO versions)
             temperatures = ReadFromHWiNFORegistry();
             if (temperatures != null)
             {
+                _logger.LogInformation("Successfully read temperature data from HWiNFO registry");
                 return Task.FromResult<CpuTemperature?>(temperatures);
             }
 
-            _logger.LogWarning("Could not read temperature data from HWiNFO");
+            _logger.LogWarning("Could not read temperature data from HWiNFO (both shared memory and registry failed)");
         }
         catch (Exception ex)
         {
@@ -118,28 +132,27 @@ public class HWiNFOService : IHWiNFOService
 
         try
         {
-            _logger.LogDebug("Opening HWiNFO shared memory: {SharedMemName}", HWINFO_SHARED_MEM_NAME);
+            _logger.LogInformation("Opening HWiNFO shared memory: {SharedMemName}", HWINFO_SHARED_MEM_NAME);
             using var mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting(
                 HWINFO_SHARED_MEM_NAME, 
                 System.IO.MemoryMappedFiles.MemoryMappedFileRights.Read);
 
             using var accessor = mmf.CreateViewAccessor(0, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read);
-            _logger.LogDebug("Successfully opened HWiNFO shared memory, reading header...");
+            _logger.LogInformation("Successfully opened HWiNFO shared memory, reading header...");
 
             // Read header
             HWiNFO_SENSORS_SHARED_MEM2 header;
             accessor.Read(0, out header);
 
-            // Validate signature against known HWiNFO signatures
+            // Log signature info (for debugging/tracking HWiNFO version changes)
             if (!KNOWN_HWINFO_SIGNATURES.Contains(header.dwSignature))
             {
-                _logger.LogWarning("Unknown HWiNFO shared memory signature: 0x{ActualSignature:X8}. Known signatures: {KnownSignatures}", 
+                _logger.LogWarning("Detected new/unknown HWiNFO shared memory signature: 0x{ActualSignature:X8}. Known signatures: {KnownSignatures}", 
                     header.dwSignature, string.Join(", ", KNOWN_HWINFO_SIGNATURES.Select(s => $"0x{s:X8}")));
-                _logger.LogInformation("If this is a newer HWiNFO version, please add signature 0x{NewSignature:X8} to the known signatures list", header.dwSignature);
-                return null;
+                _logger.LogInformation("Attempting to read sensors anyway. If this works, consider adding 0x{NewSignature:X8} to the known signatures list", header.dwSignature);
             }
 
-            _logger.LogDebug("HWiNFO shared memory opened successfully with signature 0x{Signature:X8}. Reading {Count} sensors...", 
+            _logger.LogInformation("HWiNFO shared memory opened successfully with signature 0x{Signature:X8}. Reading {Count} sensors...", 
                 header.dwSignature, header.dwNumReadingElements);
 
             // Read temperature readings
@@ -222,7 +235,7 @@ public class HWiNFOService : IHWiNFOService
                 }
             }
 
-            _logger.LogDebug("Scanned {TotalSensors} sensors, found {TempSensors} temperature sensors, matched {MatchedSensors} CPU temps", 
+            _logger.LogInformation("Scanned {TotalSensors} sensors, found {TempSensors} temperature sensors, matched {MatchedSensors} CPU temps", 
                 header.dwNumReadingElements, tempSensorsFound, foundAny ? "some" : "none");
 
             if (foundAny)
@@ -232,12 +245,12 @@ public class HWiNFOService : IHWiNFOService
             }
             else
             {
-                _logger.LogWarning("Found {TempCount} temperature sensors but none matched expected CPU sensor names", tempSensorsFound);
+                _logger.LogWarning("Found {TempCount} temperature sensors but none matched expected CPU sensor names. Enable TRACE logging to see all sensor names.", tempSensorsFound);
             }
         }
-        catch (FileNotFoundException)
+        catch (FileNotFoundException ex)
         {
-            _logger.LogDebug("HWiNFO shared memory not found. Make sure HWiNFO is running with shared memory enabled.");
+            _logger.LogWarning(ex, "HWiNFO shared memory not found. Make sure HWiNFO is running with shared memory enabled in Settings.");
         }
         catch (Exception ex)
         {
