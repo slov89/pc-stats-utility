@@ -1,6 +1,6 @@
 # Slov89.PCStats.Service
 
-Windows service that monitors system performance and logs metrics to PostgreSQL every 5 seconds.
+Windows service that monitors system performance and logs metrics to PostgreSQL at configurable intervals (default: 5 seconds).
 
 ## Overview
 
@@ -13,7 +13,7 @@ Data is stored in PostgreSQL for analysis and visualization.
 
 ## Features
 
-- **Automatic Collection**: Runs every 5 seconds
+- **Automatic Collection**: Configurable interval (default: every 5 seconds)
 - **Smart Filtering**: Only saves detailed metrics for processes with CPU usage >= threshold (default 5%)
 - **Process Tracking**: All processes tracked in database, regardless of threshold
 - **HWiNFO Integration**: Optional CPU temperature monitoring
@@ -49,7 +49,7 @@ Main background service that orchestrates data collection.
 5. Track all processes in `processes` table
 6. Filter processes by CPU threshold
 7. Save detailed metrics for filtered processes
-8. Wait 5 seconds, repeat
+8. Wait for configured interval, repeat
 
 ## Configuration
 
