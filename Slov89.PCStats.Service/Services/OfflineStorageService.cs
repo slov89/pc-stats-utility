@@ -9,7 +9,6 @@ namespace Slov89.PCStats.Service.Services;
 public class OfflineStorageService : IOfflineStorageService
 {
     private readonly ILogger<OfflineStorageService> _logger;
-    private readonly IDatabaseService _databaseService;
     private readonly string _offlineStoragePath;
     private readonly int _maxRetentionDays;
     private readonly JsonSerializerOptions _jsonOptions;
@@ -17,12 +16,10 @@ public class OfflineStorageService : IOfflineStorageService
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
     public OfflineStorageService(
-        ILogger<OfflineStorageService> logger, 
-        IDatabaseService databaseService,
+        ILogger<OfflineStorageService> logger,
         IConfiguration configuration)
     {
         _logger = logger;
-        _databaseService = databaseService;
         
         // Configure offline storage path
         _offlineStoragePath = configuration.GetValue<string>("OfflineStorage:Path") 

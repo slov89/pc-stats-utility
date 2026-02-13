@@ -17,6 +17,15 @@ public class DatabaseService : IDatabaseService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Constructor for testing that accepts connection string directly
+    /// </summary>
+    public DatabaseService(string connectionString, ILogger<DatabaseService> logger)
+    {
+        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+        _logger = logger;
+    }
+
     public async Task TestConnectionAsync()
     {
         try

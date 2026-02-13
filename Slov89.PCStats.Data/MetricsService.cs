@@ -16,6 +16,15 @@ public class MetricsService : IMetricsService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Constructor for testing that accepts connection string directly
+    /// </summary>
+    public MetricsService(string connectionString, ILogger<MetricsService> logger)
+    {
+        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+        _logger = logger;
+    }
+
     public async Task<List<Snapshot>> GetSnapshotsAsync(DateTime startTime, DateTime endTime)
     {
         var snapshots = new List<Snapshot>();

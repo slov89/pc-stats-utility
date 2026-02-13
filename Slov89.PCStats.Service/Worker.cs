@@ -35,16 +35,8 @@ public class Worker : BackgroundService
     {
         _logger.LogInformation("PC Stats Service is starting...");
 
-        try
-        {
-            await _databaseService.InitializeAsync();
-            _logger.LogInformation("Database connection established");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to initialize database connection");
-            throw;
-        }
+        // Initialize database connection (will handle offline mode if unavailable)
+        await _databaseService.InitializeAsync();
 
         if (!_hwinfoService.IsHWiNFORunning())
         {

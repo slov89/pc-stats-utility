@@ -15,7 +15,7 @@ if (!string.IsNullOrEmpty(pgConnectionString))
 builder.Services.AddSingleton<IProcessMonitorService, ProcessMonitorService>();
 builder.Services.AddSingleton<IHWiNFOService, HWiNFOService>();
 
-// Register offline storage service
+// Register offline storage service (no circular dependency)
 builder.Services.AddSingleton<IOfflineStorageService, OfflineStorageService>();
 
 // Register the actual database service implementation

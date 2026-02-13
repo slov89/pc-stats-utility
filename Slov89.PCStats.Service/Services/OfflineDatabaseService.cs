@@ -27,7 +27,16 @@ public class OfflineDatabaseService : IDatabaseService
 
     public async Task InitializeAsync()
     {
-        await _databaseService.InitializeAsync();
+        try
+        {
+            await _databaseService.InitializeAsync();
+            _logger.LogInformation("Database connection established - operating in online mode");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Database connection failed during initialization - starting in offline mode");
+            _isOfflineMode = true;
+        }
     }
 
     public async Task<bool> IsConnectionAvailableAsync()
