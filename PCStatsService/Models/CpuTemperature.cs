@@ -8,4 +8,6 @@ public class CpuTemperature
     public decimal? CpuDieAverage { get; set; }
     public decimal? CpuCcd1Tdie { get; set; }
     public decimal? CpuCcd2Tdie { get; set; }
+    public decimal? ThermalLimitPercent { get; set; }
+    public bool? ThermalThrottling { get; set; }
 }

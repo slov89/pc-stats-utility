@@ -61,7 +61,9 @@ CREATE TABLE cpu_temperatures (
     cpu_tctl_tdie DECIMAL(5,2), -- CPU (Tctl/Tdie) temperature
     cpu_die_average DECIMAL(5,2), -- CPU Die (average) temperature
     cpu_ccd1_tdie DECIMAL(5,2), -- CPU CCD1 (Tdie) temperature
-    cpu_ccd2_tdie DECIMAL(5,2) -- CPU CCD2 (Tdie) temperature
+    cpu_ccd2_tdie DECIMAL(5,2), -- CPU CCD2 (Tdie) temperature
+    thermal_limit_percent DECIMAL(5,2), -- Thermal Limit percentage
+    thermal_throttling BOOLEAN -- Thermal Throttling (HTC) yes/no
 );
 
 CREATE INDEX idx_cpu_temps_snapshot ON cpu_temperatures(snapshot_id);
@@ -89,7 +91,9 @@ SELECT
     ct.cpu_tctl_tdie,
     ct.cpu_die_average,
     ct.cpu_ccd1_tdie,
-    ct.cpu_ccd2_tdie
+    ct.cpu_ccd2_tdie,
+    ct.thermal_limit_percent,
+    ct.thermal_throttling
 FROM snapshots s
 INNER JOIN cpu_temperatures ct ON s.snapshot_id = ct.snapshot_id
 WHERE s.snapshot_id = (SELECT MAX(snapshot_id) FROM snapshots);

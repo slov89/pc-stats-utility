@@ -143,8 +143,8 @@ public class DatabaseService : IDatabaseService
         await connection.OpenAsync();
 
         const string sql = @"
-            INSERT INTO cpu_temperatures (snapshot_id, cpu_tctl_tdie, cpu_die_average, cpu_ccd1_tdie, cpu_ccd2_tdie)
-            VALUES (@snapshotId, @cpuTctlTdie, @cpuDieAverage, @cpuCcd1Tdie, @cpuCcd2Tdie)";
+            INSERT INTO cpu_temperatures (snapshot_id, cpu_tctl_tdie, cpu_die_average, cpu_ccd1_tdie, cpu_ccd2_tdie, thermal_limit_percent, thermal_throttling)
+            VALUES (@snapshotId, @cpuTctlTdie, @cpuDieAverage, @cpuCcd1Tdie, @cpuCcd2Tdie, @thermalLimitPercent, @thermalThrottling)";
 
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("snapshotId", snapshotId);
@@ -152,6 +152,8 @@ public class DatabaseService : IDatabaseService
         command.Parameters.AddWithValue("cpuDieAverage", (object?)temperature.CpuDieAverage ?? DBNull.Value);
         command.Parameters.AddWithValue("cpuCcd1Tdie", (object?)temperature.CpuCcd1Tdie ?? DBNull.Value);
         command.Parameters.AddWithValue("cpuCcd2Tdie", (object?)temperature.CpuCcd2Tdie ?? DBNull.Value);
+        command.Parameters.AddWithValue("thermalLimitPercent", (object?)temperature.ThermalLimitPercent ?? DBNull.Value);
+        command.Parameters.AddWithValue("thermalThrottling", (object?)temperature.ThermalThrottling ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync();
     }

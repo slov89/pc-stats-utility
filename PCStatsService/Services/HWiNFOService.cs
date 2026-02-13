@@ -171,6 +171,18 @@ public class HWiNFOService : IHWiNFOService
                         _logger.LogTrace("Captured CPU CCD2 (Tdie): {Temp}°C", temp);
                     }
                 }
+                else if (unit.Contains("%") && label.Equals("Thermal Limit", StringComparison.OrdinalIgnoreCase))
+                {
+                    cpuTemp.ThermalLimitPercent = (decimal)reading.Value;
+                    foundAny = true;
+                    _logger.LogTrace("Captured Thermal Limit: {Value}%", reading.Value);
+                }
+                else if (label.Equals("Thermal Throttling (HTC)", StringComparison.OrdinalIgnoreCase))
+                {
+                    cpuTemp.ThermalThrottling = reading.Value > 0;
+                    foundAny = true;
+                    _logger.LogTrace("Captured Thermal Throttling: {Value}", reading.Value > 0 ? "Yes" : "No");
+                }
             }
 
             if (foundAny)
@@ -235,6 +247,18 @@ public class HWiNFOService : IHWiNFOService
                         cpuTemp.CpuCcd2Tdie = temp;
                         foundAny = true;
                         _logger.LogTrace("Captured CPU CCD2 (Tdie) from registry: {Temp}°C", temp);
+                    }
+                    else if (valueName.Equals("Thermal Limit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        cpuTemp.ThermalLimitPercent = temp;
+                        foundAny = true;
+                        _logger.LogTrace("Captured Thermal Limit from registry: {Value}%", temp);
+                    }
+                    else if (valueName.Equals("Thermal Throttling (HTC)", StringComparison.OrdinalIgnoreCase))
+                    {
+                        cpuTemp.ThermalThrottling = temp > 0;
+                        foundAny = true;
+                        _logger.LogTrace("Captured Thermal Throttling from registry: {Value}", temp > 0 ? "Yes" : "No");
                     }
                 }
             }

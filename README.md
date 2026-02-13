@@ -243,6 +243,8 @@ All processes are tracked in the `processes` table. For processes with CPU usage
 - CPU Die (average) - Average die temperature
 - CPU CCD1 (Tdie) - Core Complex Die 1 temperature
 - CPU CCD2 (Tdie) - Core Complex Die 2 temperature
+- Thermal Limit - Thermal limit percentage
+- Thermal Throttling (HTC) - Whether thermal throttling is active (yes/no)
 
 ## Database Schema
 
@@ -270,6 +272,7 @@ The database uses a normalized relational design with 4 main tables:
    - `temp_id` (primary key)
    - `snapshot_id` (foreign key, one record per snapshot)
    - `cpu_tctl_tdie`, `cpu_die_average`, `cpu_ccd1_tdie`, `cpu_ccd2_tdie`
+   - `thermal_limit_percent`, `thermal_throttling`
 
 ### Views
 - **v_latest_process_stats** - Most recent process statistics
