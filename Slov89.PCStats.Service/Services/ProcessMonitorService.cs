@@ -1,5 +1,6 @@
 using System.Diagnostics;
-using System.Management;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Slov89.PCStats.Models;
 
 namespace Slov89.PCStats.Service.Services;
@@ -9,14 +10,16 @@ public class ProcessMonitorService : IProcessMonitorService
     private readonly ILogger<ProcessMonitorService> _logger;
     private readonly PerformanceCounter _cpuCounter;
     private readonly PerformanceCounter _ramCounter;
+    private readonly bool _enableVramMonitoring;
     private DateTime _lastCpuCheck = DateTime.MinValue;
     private readonly Dictionary<int, (DateTime lastCheck, TimeSpan lastTotalProcessorTime)> _processCpuUsage = new();
 
-    public ProcessMonitorService(ILogger<ProcessMonitorService> logger)
+    public ProcessMonitorService(ILogger<ProcessMonitorService> logger, IConfiguration configuration)
     {
         _logger = logger;
         _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
         _ramCounter = new PerformanceCounter("Memory", "Available MBytes");
+        _enableVramMonitoring = configuration.GetValue<bool>("MonitoringSettings:EnableVRAMMonitoring", true);
     }
 
     public async Task<decimal> GetSystemCpuUsageAsync()
@@ -106,13 +109,13 @@ public class ProcessMonitorService : IProcessMonitorService
             // Get memory information (in MB)
             processInfo.MemoryUsageMb = process.WorkingSet64 / (1024 * 1024);
             processInfo.PrivateMemoryMb = process.PrivateMemorySize64 / (1024 * 1024);
-            processInfo.VirtualMemoryMb = process.VirtualMemorySize64 / (1024 * 1024);
+            processInfo.VirtualMemoryMb = process.PagedMemorySize64 / (1024 * 1024); // Paged memory (not virtual address space)
 
             // Calculate CPU usage
             processInfo.CpuUsage = CalculateProcessCpuUsage(process);
 
-            // Get VRAM usage using WMI
-            processInfo.VramUsageMb = await GetProcessVramUsageAsync(process.Id);
+            // Get VRAM usage using Performance Counters
+            processInfo.VramUsageMb = GetProcessVramUsage(process.Id);
 
             return processInfo;
         }
@@ -154,38 +157,56 @@ public class ProcessMonitorService : IProcessMonitorService
         }
     }
 
-    private async Task<long> GetProcessVramUsageAsync(int processId)
+    private long GetProcessVramUsage(int processId)
     {
+        if (!_enableVramMonitoring)
+            return 0;
+
         try
         {
-            // Try to get VRAM usage via WMI (this may not work for all GPUs/drivers)
-            using var searcher = new ManagementObjectSearcher(
-                $"SELECT * FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine WHERE ProcessId = {processId}");
+            // Use Windows Performance Counters to get GPU dedicated memory per process
+            // This is what Process Explorer uses
+            var categoryName = "GPU Process Memory";
             
-            long totalVram = 0;
-            var results = await Task.Run(() => searcher.Get());
-            
-            foreach (ManagementObject obj in results)
+            if (!PerformanceCounterCategory.Exists(categoryName))
+            {
+                _logger.LogDebug("GPU Process Memory performance counter category not found");
+                return 0;
+            }
+
+            var category = new PerformanceCounterCategory(categoryName);
+            var instanceNames = category.GetInstanceNames();
+
+            foreach (var instanceName in instanceNames)
             {
                 try
                 {
-                    var dedicatedUsage = obj["DedicatedUsage"];
-                    if (dedicatedUsage != null)
+                    // Instance names are in format: "pid_XXXXX_luid_0x00000000_0x00013523_phys_0"
+                    if (instanceName.StartsWith("pid_"))
                     {
-                        totalVram += Convert.ToInt64(dedicatedUsage);
+                        var parts = instanceName.Split('_');
+                        if (parts.Length >= 2 && int.TryParse(parts[1], out int pid) && pid == processId)
+                        {
+                            using var counter = new PerformanceCounter(categoryName, "Dedicated Usage", instanceName, true);
+                            var bytes = counter.NextValue();
+                            
+                            // Convert bytes to MB
+                            return (long)(bytes / (1024 * 1024));
+                        }
                     }
                 }
                 catch
                 {
-                    // Ignore individual failures
+                    // Skip instances we can't read
+                    continue;
                 }
             }
 
-            return totalVram / (1024 * 1024); // Convert to MB
+            return 0;
         }
-        catch
+        catch (Exception ex)
         {
-            // VRAM monitoring may not be available on all systems
+            _logger.LogDebug(ex, "Failed to get VRAM usage via performance counters for process {ProcessId}", processId);
             return 0;
         }
     }

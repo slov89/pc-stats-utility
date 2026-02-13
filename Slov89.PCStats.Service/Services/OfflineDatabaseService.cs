@@ -303,4 +303,10 @@ public class OfflineDatabaseService : IDatabaseService
     {
         await _databaseService.RestoreOfflineSnapshotBatchAsync(batch);
     }
+
+    public async Task<int> CleanupOldSnapshotsAsync(int daysToKeep)
+    {
+        // Cleanup doesn't need offline mode support - always call database directly
+        return await _databaseService.CleanupOldSnapshotsAsync(daysToKeep);
+    }
 }

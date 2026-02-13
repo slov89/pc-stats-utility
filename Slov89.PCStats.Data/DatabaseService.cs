@@ -65,6 +65,20 @@ public class DatabaseService : IDatabaseService
         return Convert.ToInt64(result);
     }
 
+    public async Task<int> CleanupOldSnapshotsAsync(int daysToKeep)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        const string sql = "SELECT cleanup_old_snapshots(@daysToKeep)";
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("daysToKeep", daysToKeep);
+
+        var result = await command.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
+    }
+
     public async Task<int> GetOrCreateProcessAsync(string processName, string? processPath)
     {
         await using var connection = new NpgsqlConnection(_connectionString);

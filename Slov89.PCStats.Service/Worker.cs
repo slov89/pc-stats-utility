@@ -13,6 +13,11 @@ public class Worker : BackgroundService
     private readonly IConfiguration _configuration;
     private readonly PerformanceCounter _availableMemoryCounter;
     private readonly decimal _minimumCpuUsagePercent;
+    private readonly long _minimumPrivateMemoryMb;
+    private readonly bool _enableAutoCleanup;
+    private readonly int _cleanupIntervalHours;
+    private readonly int _retentionDays;
+    private DateTime _lastCleanupTime = DateTime.MinValue;
     private int _cycleCount = 0;
 
     public Worker(
@@ -29,6 +34,10 @@ public class Worker : BackgroundService
         _configuration = configuration;
         _availableMemoryCounter = new PerformanceCounter("Memory", "Available MBytes");
         _minimumCpuUsagePercent = _configuration.GetValue<decimal>("MonitoringSettings:MinimumCpuUsagePercent", 5.0m);
+        _minimumPrivateMemoryMb = _configuration.GetValue<long>("MonitoringSettings:MinimumPrivateMemoryMb", 100);
+        _enableAutoCleanup = _configuration.GetValue<bool>("DatabaseCleanup:EnableAutoCleanup", true);
+        _cleanupIntervalHours = _configuration.GetValue<int>("DatabaseCleanup:CleanupIntervalHours", 24);
+        _retentionDays = _configuration.GetValue<int>("DatabaseCleanup:RetentionDays", 7);
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -44,8 +53,18 @@ public class Worker : BackgroundService
             _logger.LogWarning("Please start HWiNFO v8.14 with shared memory enabled for temperature monitoring.");
         }
 
-        _logger.LogInformation("Minimum CPU usage threshold: {MinCpuPercent}% (processes below this will not be saved)", 
-            _minimumCpuUsagePercent);
+        _logger.LogInformation("Process filtering thresholds - CPU: {MinCpuPercent}%, Private Memory: {MinMemoryMb}MB (processes meeting either threshold will be saved)", 
+            _minimumCpuUsagePercent, _minimumPrivateMemoryMb);
+
+        if (_enableAutoCleanup)
+        {
+            _logger.LogInformation("Automatic database cleanup enabled - Retention: {RetentionDays} days, Interval: {IntervalHours} hours",
+                _retentionDays, _cleanupIntervalHours);
+        }
+        else
+        {
+            _logger.LogInformation("Automatic database cleanup disabled");
+        }
 
         await base.StartAsync(cancellationToken);
     }
@@ -67,6 +86,16 @@ public class Worker : BackgroundService
 
                 _cycleCount++;
                 _logger.LogDebug("Cycle {CycleCount} completed in {ElapsedMs}ms", _cycleCount, stopwatch.ElapsedMilliseconds);
+
+                // Run database cleanup if enabled and interval has elapsed
+                if (_enableAutoCleanup)
+                {
+                    var timeSinceLastCleanup = DateTime.Now - _lastCleanupTime;
+                    if (timeSinceLastCleanup.TotalHours >= _cleanupIntervalHours)
+                    {
+                        await RunDatabaseCleanupAsync();
+                    }
+                }
 
                 // Cleanup old process tracking every 100 cycles (approximately every 8 minutes)
                 if (_cycleCount % 100 == 0 && _processMonitor is ProcessMonitorService pms)
@@ -118,17 +147,17 @@ public class Worker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogTrace(ex, "Error tracking process {ProcessName}", processInfo.ProcessName);
+                _logger.LogError(ex, "Error tracking process {ProcessName}", processInfo.ProcessName);
             }
         }
 
-        // Filter processes by CPU usage threshold for detailed snapshot logging
+        // Filter processes by CPU usage OR private memory threshold for detailed snapshot logging
         var filteredProcesses = processes
-            .Where(p => p.CpuUsage >= _minimumCpuUsagePercent)
+            .Where(p => p.CpuUsage >= _minimumCpuUsagePercent || p.PrivateMemoryMb >= _minimumPrivateMemoryMb)
             .ToList();
         
-        _logger.LogInformation("Saving detailed metrics for {FilteredCount} of {TotalCount} processes (CPU usage >= {MinCpu}%)",
-            filteredProcesses.Count, processes.Count, _minimumCpuUsagePercent);
+        _logger.LogInformation("Saving detailed metrics for {FilteredCount} of {TotalCount} processes (CPU >= {MinCpu}% OR Memory >= {MinMem}MB)",
+            filteredProcesses.Count, processes.Count, _minimumCpuUsagePercent, _minimumPrivateMemoryMb);
 
         // Store process snapshots only for processes meeting the CPU threshold
         foreach (var processInfo in filteredProcesses)
@@ -143,7 +172,7 @@ public class Worker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogTrace(ex, "Error storing snapshot for process {ProcessName}", processInfo.ProcessName);
+                _logger.LogError(ex, "Error storing snapshot for process {ProcessName}", processInfo.ProcessName);
             }
         }
 
@@ -180,6 +209,25 @@ public class Worker : BackgroundService
         else
         {
             _logger.LogInformation("No CPU temperature data available from HWiNFO");
+        }
+    }
+
+    private async Task RunDatabaseCleanupAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Starting automatic database cleanup (retention: {RetentionDays} days)...", _retentionDays);
+            
+            var deletedCount = await _databaseService.CleanupOldSnapshotsAsync(_retentionDays);
+            
+            _logger.LogInformation("Database cleanup completed. Deleted {DeletedCount} snapshots older than {RetentionDays} days",
+                deletedCount, _retentionDays);
+            
+            _lastCleanupTime = DateTime.Now;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during automatic database cleanup");
         }
     }
 
