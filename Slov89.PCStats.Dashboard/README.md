@@ -59,7 +59,37 @@ Navigate to: `https://localhost:5001` (or URL shown in console)
 
 ### Production Deployment
 
-#### Option 1: Kestrel (Self-Hosted)
+#### Option 1: IIS (Recommended)
+
+**Automated Deployment:**
+
+```powershell
+cd Slov89.PCStats.Dashboard
+.\Deploy-IIS.ps1
+```
+
+This builds in Release mode and deploys to IIS at `http://localhost:5000`.
+
+**Custom Configuration:**
+
+```powershell
+.\Deploy-IIS.ps1 -Port 8080 -HttpsPort 8443 -InstallPath "D:\WebApps\Dashboard"
+```
+
+**Prerequisites:**
+- ASP.NET Core Hosting Bundle installed
+- IIS with .NET support enabled
+- Machine-level environment variable `slov89_pc_stats_utility_pg` set
+- Run PowerShell as Administrator
+
+**Removal:**
+
+```powershell
+.\Remove-IIS.ps1            # Removes IIS config only
+.\Remove-IIS.ps1 -RemoveFiles  # Also deletes deployed files
+```
+
+#### Option 2: Kestrel (Self-Hosted)
 
 ```powershell
 # Publish
@@ -69,21 +99,6 @@ dotnet publish -c Release -o C:\inetpub\Slov89.PCStats.Dashboard
 cd C:\inetpub\Slov89.PCStats.Dashboard
 dotnet Slov89.PCStats.Dashboard.dll --urls "http://*:5000;https://*:5001"
 ```
-
-#### Option 2: IIS
-
-1. Publish the application:
-   ```powershell
-   dotnet publish -c Release -o C:\inetpub\Slov89.PCStats.Dashboard
-   ```
-
-2. Install ASP.NET Core Hosting Bundle
-
-3. Create IIS Application Pool (.NET CLR Version: No Managed Code)
-
-4. Create IIS Website pointing to publish folder
-
-5. Ensure application pool identity has access to environment variable
 
 #### Option 3: Windows Service
 
