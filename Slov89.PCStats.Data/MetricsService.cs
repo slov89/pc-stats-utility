@@ -173,12 +173,13 @@ public class MetricsService : IMetricsService
             {
                 const string metricsSql = @"
                     SELECT s.snapshot_timestamp,
-                           COALESCE(ps.cpu_usage, 0) as cpu_usage,
-                           COALESCE(ps.memory_usage_mb, 0) as memory_mb
+                           ps.cpu_usage as cpu_usage,
+                           ps.memory_usage_mb as memory_mb
                     FROM snapshots s
-                    LEFT JOIN process_snapshots ps ON s.snapshot_id = ps.snapshot_id
-                    LEFT JOIN processes p ON ps.process_id = p.process_id AND p.process_name = @processName
-                    WHERE s.snapshot_timestamp >= @startTime 
+                    INNER JOIN process_snapshots ps ON s.snapshot_id = ps.snapshot_id
+                    INNER JOIN processes p ON ps.process_id = p.process_id
+                    WHERE p.process_name = @processName
+                      AND s.snapshot_timestamp >= @startTime 
                       AND s.snapshot_timestamp <= @endTime
                     ORDER BY s.snapshot_timestamp ASC";
 

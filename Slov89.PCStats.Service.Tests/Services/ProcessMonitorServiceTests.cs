@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Slov89.PCStats.Service.Services;
@@ -8,12 +9,18 @@ namespace Slov89.PCStats.Service.Tests.Services;
 public class ProcessMonitorServiceTests
 {
     private readonly Mock<ILogger<ProcessMonitorService>> _mockLogger;
+    private readonly Mock<IConfiguration> _mockConfiguration;
     private readonly ProcessMonitorService _service;
 
     public ProcessMonitorServiceTests()
     {
         _mockLogger = new Mock<ILogger<ProcessMonitorService>>();
-        _service = new ProcessMonitorService(_mockLogger.Object);
+        _mockConfiguration = new Mock<IConfiguration>();
+        
+        // Setup default configuration values
+        _mockConfiguration.Setup(c => c["MonitoringSettings:EnableVRAMMonitoring"]).Returns("false");
+        
+        _service = new ProcessMonitorService(_mockLogger.Object, _mockConfiguration.Object);
     }
 
     [Fact]

@@ -124,7 +124,8 @@ else
                     <h5 class="mb-0">System CPU Usage & Temperature</h5>
                 </div>
                 <div class="card-body">
-                    <ApexChart TItem="CpuTempMetric"
+                    <ApexChart @ref="combinedCpuChart"
+                               TItem="CpuTempMetric"
                                Title="CPU Usage, Thermal Limit & Temperature"
                                Options="combinedCpuChartOptions"
                                Height="350">
@@ -170,7 +171,8 @@ else
                     <h5 class="mb-0">System Memory Usage</h5>
                 </div>
                 <div class="card-body">
-                    <ApexChart TItem="Snapshot"
+                    <ApexChart @ref="memoryChart"
+                               TItem="Snapshot"
                                Title="Memory Usage Over Time"
                                Options="memoryChartOptions"
                                Height="300">
@@ -186,43 +188,11 @@ else
             </div>
         </div>
     </div>
-
-    @if (processMetrics.Any())
-    {
-        <div class="row">
-            <!-- Top Processes CPU Chart -->
-            <div class="col-md-12 mb-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Top Processes CPU Usage</h5>
-                    </div>
-                    <div class="card-body">
-                        <ApexChart TItem="ProcessMetric"
-                                   Title="Top Processes by CPU Usage"
-                                   Options="processChartOptions"
-                                   Height="300">
-                            @foreach (var process in processMetrics.Take(5))
-                            {
-                                <ApexPointSeries TItem="ProcessMetric"
-                                                 Items="process.Value"
-                                                 Name="@process.Key"
-                                                 SeriesType="SeriesType.Line"
-                                                 XValue="@(e => e.Timestamp)"
-                                                 YAggregate="@(e => e.Sum(x => x.CpuUsage))"
-                                                 OrderBy="@(e => e.X)" />
-                            }
-                        </ApexChart>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
 }
 
 @code {
     private List<Snapshot> snapshots = new();
     private List<CpuTemperature> temperatures = new();
-    private Dictionary<string, List<ProcessMetric>> processMetrics = new();
     private List<TempReading> tempReadings = new();
     private List<CpuMetric> cpuMetrics = new();
     private List<CpuTempMetric> cpuTempMetrics = new();
@@ -231,13 +201,24 @@ else
     private bool hasError = false;
     private string errorMessage = string.Empty;
     private System.Threading.Timer? refreshTimer;
-    private int secondsUntilRefresh = 15;
-    private const int RefreshIntervalSeconds = 15;
+    private int secondsUntilRefresh = 5;
+    private const int RefreshIntervalSeconds = 5;
     private bool autoRefreshEnabled = true;
+    
+    private ApexChart<CpuTempMetric>? combinedCpuChart;
+    private ApexChart<Snapshot>? memoryChart;
 
     private ApexChartOptions<CpuTempMetric> combinedCpuChartOptions = new()
     {
-        Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Chart = new Chart 
+        { 
+            Toolbar = new Toolbar { Show = false },
+            Animations = new Animations 
+            { 
+                Enabled = true, 
+                DynamicAnimation = new DynamicAnimation { Enabled = true, Speed = 350 } 
+            }
+        },
         Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
         Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
         Xaxis = new XAxis 
@@ -259,7 +240,7 @@ else
         { 
             Theme = Mode.Light,
             Style = new TooltipStyle { FontSize = "12px" },
-            X = new TooltipX { Format = "dd MMM HH:mm" },
+            X = new TooltipX { Format = "dd MMM HH:mm:ss" },
             Shared = true
         }
     };
@@ -290,13 +271,21 @@ else
         { 
             Theme = Mode.Light,
             Style = new TooltipStyle { FontSize = "12px" },
-            X = new TooltipX { Format = "dd MMM HH:mm" }
+            X = new TooltipX { Format = "dd MMM HH:mm:ss" }
         }
     };
 
     private ApexChartOptions<Snapshot> memoryChartOptions = new()
     {
-        Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Chart = new Chart 
+        { 
+            Toolbar = new Toolbar { Show = false },
+            Animations = new Animations 
+            { 
+                Enabled = true, 
+                DynamicAnimation = new DynamicAnimation { Enabled = true, Speed = 350 } 
+            }
+        },
         Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
         Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
         Xaxis = new XAxis 
@@ -319,7 +308,7 @@ else
         { 
             Theme = Mode.Light,
             Style = new TooltipStyle { FontSize = "12px" },
-            X = new TooltipX { Format = "dd MMM HH:mm" }
+            X = new TooltipX { Format = "dd MMM HH:mm:ss" }
         }
     };
 
@@ -347,35 +336,7 @@ else
         { 
             Theme = Mode.Light,
             Style = new TooltipStyle { FontSize = "12px" },
-            X = new TooltipX { Format = "dd MMM HH:mm" }
-        }
-    };
-
-    private ApexChartOptions<ProcessMetric> processChartOptions = new()
-    {
-        Chart = new Chart { Toolbar = new Toolbar { Show = false } },
-        Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
-        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
-        Xaxis = new XAxis 
-        { 
-            Type = XAxisType.Datetime,
-            Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
-        },
-        Yaxis = new List<YAxis> 
-        { 
-            new YAxis 
-            { 
-                Min = 0, 
-                Title = new AxisTitle { Text = "CPU %", Style = new AxisTitleStyle { Color = "#e0e0e0" } },
-                Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
-            } 
-        },
-        Legend = new Legend { Labels = new LegendLabels { Colors = "#e0e0e0" } },
-        Tooltip = new Tooltip 
-        { 
-            Theme = Mode.Light,
-            Style = new TooltipStyle { FontSize = "12px" },
-            X = new TooltipX { Format = "dd MMM HH:mm" }
+            X = new TooltipX { Format = "dd MMM HH:mm:ss" }
         }
     };
 
@@ -402,9 +363,12 @@ else
                         secondsUntilRefresh = RefreshIntervalSeconds;
                     });
                 }
+                else
+                {
+                    // Only update the countdown display, don't reload data
+                    await InvokeAsync(StateHasChanged);
+                }
             }
-            
-            await InvokeAsync(StateHasChanged);
         }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
@@ -438,6 +402,23 @@ else
         secondsUntilRefresh = RefreshIntervalSeconds;
     }
 
+    private async Task UpdateChartsAsync()
+    {
+        try
+        {
+            // Use UpdateSeriesAsync for smoother updates without full re-render
+            if (combinedCpuChart != null)
+                await combinedCpuChart.UpdateSeriesAsync();
+            
+            if (memoryChart != null)
+                await memoryChart.UpdateSeriesAsync();
+        }
+        catch
+        {
+            // Ignore chart update errors (e.g., if component not yet rendered)
+        }
+    }
+    
     public void Dispose()
     {
         refreshTimer?.Dispose();
@@ -445,10 +426,17 @@ else
 
     private async Task LoadData()
     {
-        isLoading = true;
+        // Only show loading spinner on initial load, not on auto-refresh
+        var isInitialLoad = !snapshots.Any();
+        
+        if (isInitialLoad)
+        {
+            isLoading = true;
+            StateHasChanged();
+        }
+        
         hasError = false;
         errorMessage = string.Empty;
-        StateHasChanged();
 
         try
         {
@@ -457,7 +445,6 @@ else
 
             snapshots = await MetricsService.GetSnapshotsAsync(startTime, endTime);
             temperatures = await MetricsService.GetCpuTemperaturesAsync(startTime, endTime);
-            var topProcesses = await MetricsService.GetTopProcessesAsync(startTime, endTime, 5);
 
             // Create a hashset of snapshot IDs that have temperature data for faster lookup
             var snapshotsWithTemp = new HashSet<long>(temperatures.Select(t => t.SnapshotId));
@@ -496,17 +483,6 @@ else
                         CpuDieAverage = temp.CpuDieAverage
                     };
                 }).ToList();
-
-            // Convert process data for charting
-            processMetrics = topProcesses.ToDictionary(
-                kvp => kvp.Key,
-                kvp => kvp.Value.Select(m => new ProcessMetric
-                {
-                    Timestamp = m.timestamp,
-                    CpuUsage = m.cpuUsage,
-                    MemoryMb = m.memoryMb
-                }).ToList()
-            );
         }
         catch (Exception ex)
         {
@@ -515,8 +491,14 @@ else
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (isInitialLoad)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
+            
+            // Update charts after data loads (will trigger StateHasChanged internally)
+            await UpdateChartsAsync();
         }
     }
 
@@ -543,12 +525,5 @@ else
         public decimal? ThermalLimitPercent { get; set; }
         public decimal? CpuTctlTdie { get; set; }
         public decimal? CpuDieAverage { get; set; }
-    }
-
-    private class ProcessMetric
-    {
-        public DateTime Timestamp { get; set; }
-        public decimal CpuUsage { get; set; }
-        public long MemoryMb { get; set; }
     }
 }
