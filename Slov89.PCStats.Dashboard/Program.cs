@@ -10,6 +10,23 @@ builder.WebHost.UseUrls();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// Configure circuit options for better reconnection handling
+builder.Services.AddServerSideBlazor().AddCircuitOptions(options =>
+{
+    options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(5);
+    options.DisconnectedCircuitMaxRetained = 200;
+    options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(2);
+});
+
+// Configure SignalR options for better reconnection during deployments
+builder.Services.AddSignalR(options =>
+{
+    options.ClientTimeoutInterval = TimeSpan.FromMinutes(5);
+    options.KeepAliveInterval = TimeSpan.FromSeconds(10);
+    options.HandshakeTimeout = TimeSpan.FromMinutes(1);
+    options.MaximumReceiveMessageSize = null;
+});
+
 // Register MetricsService
 builder.Services.AddScoped<IMetricsService, MetricsService>();
 

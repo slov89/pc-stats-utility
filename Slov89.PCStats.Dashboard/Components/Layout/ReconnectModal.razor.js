@@ -16,7 +16,21 @@ function handleReconnectStateChanged(event) {
     } else if (event.detail.state === "failed") {
         document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
     } else if (event.detail.state === "rejected") {
-        location.reload();
+        // Circuit was rejected (likely due to deployment/restart)
+        // Try to resume circuit instead of immediately reloading
+        setTimeout(async () => {
+            try {
+                const resumeSuccessful = await Blazor.resumeCircuit();
+                if (resumeSuccessful) {
+                    reconnectModal.close();
+                } else {
+                    // If resume fails, reload the page
+                    location.reload();
+                }
+            } catch {
+                location.reload();
+            }
+        }, 2000); // Wait 2 seconds before attempting resume
     }
 }
 

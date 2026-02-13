@@ -18,11 +18,18 @@
             <button type="button" class="btn @(selectedMinutes == 10 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(10)">10 Minutes</button>
             <button type="button" class="btn @(selectedMinutes == 30 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(30)">30 Minutes</button>
             <button type="button" class="btn @(selectedMinutes == 60 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(60)">1 Hour</button>
+            <button type="button" class="btn @(selectedMinutes == 180 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(180)">3 Hours</button>
+            <button type="button" class="btn @(selectedMinutes == 360 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(360)">6 Hours</button>
+            <button type="button" class="btn @(selectedMinutes == 720 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(720)">12 Hours</button>
+            <button type="button" class="btn @(selectedMinutes == 1440 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectTimeRange(1440)">24 Hours</button>
         </div>
         <button type="button" class="btn btn-success ms-3" @onclick="RefreshData">
             <span class="bi bi-arrow-clockwise"></span> Refresh
         </button>
-        <span class="ms-2 text-muted">Next refresh in @secondsUntilRefresh seconds</span>
+        @if (autoRefreshEnabled)
+        {
+            <span class="ms-2 text-muted">Updates in @secondsUntilRefresh seconds</span>
+        }
     </div>
 </div>
 
@@ -54,42 +61,110 @@ else if (!snapshots.Any())
 }
 else
 {
-    <div class="row">
-        <!-- CPU Usage Chart -->
-        <div class="col-md-6 mb-4">
+    <!-- Summary Statistics -->
+    <div class="row mb-4">
+        <div class="col-md-12">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="mb-0">System CPU Usage</h5>
+                    <h5 class="mb-0">Summary Statistics</h5>
                 </div>
                 <div class="card-body">
-                    <ApexChart TItem="CpuMetric"
-                               Title="CPU Usage vs Thermal Limit"
-                               Options="cpuChartOptions"
-                               Height="300">
-                        <ApexPointSeries TItem="CpuMetric"
-                                         Items="cpuMetrics"
+                    <div class="row">
+                        <div class="col">
+                            <h6>Average CPU Usage</h6>
+                            <h3 class="text-primary">@($"{snapshots.Average(s => s.TotalCpuUsage ?? 0):F1}%")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Min CPU Usage</h6>
+                            <h3 class="text-success">@($"{snapshots.Min(s => s.TotalCpuUsage ?? 0):F1}%")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Peak CPU Usage</h6>
+                            <h3 class="text-danger">@($"{snapshots.Max(s => s.TotalCpuUsage ?? 0):F1}%")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Average CPU Temp</h6>
+                            <h3 class="text-warning">@(tempReadings.Any(t => t.CpuTctlTdie.HasValue) ? $"{tempReadings.Where(t => t.CpuTctlTdie.HasValue).Average(t => t.CpuTctlTdie ?? 0):F1}°C" : "N/A")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Min CPU Temp</h6>
+                            <h3 class="text-success">@(tempReadings.Any(t => t.CpuTctlTdie.HasValue) ? $"{tempReadings.Where(t => t.CpuTctlTdie.HasValue).Min(t => t.CpuTctlTdie ?? 0):F1}°C" : "N/A")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Peak CPU Temp</h6>
+                            <h3 class="text-danger">@(tempReadings.Any(t => t.CpuTctlTdie.HasValue) ? $"{tempReadings.Where(t => t.CpuTctlTdie.HasValue).Max(t => t.CpuTctlTdie ?? 0):F1}°C" : "N/A")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Average Memory Used</h6>
+                            <h3 class="text-info">@($"{snapshots.Average(s => s.TotalMemoryUsageMb ?? 0):N0} MB")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Min Memory Used</h6>
+                            <h3 class="text-success">@($"{snapshots.Min(s => s.TotalMemoryUsageMb ?? 0):N0} MB")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Peak Memory Used</h6>
+                            <h3 class="text-danger">@($"{snapshots.Max(s => s.TotalMemoryUsageMb ?? 0):N0} MB")</h3>
+                        </div>
+                        <div class="col">
+                            <h6>Data Points</h6>
+                            <h3 class="text-success">@snapshots.Count</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Combined CPU Usage & Temperature Chart -->
+        <div class="col-md-12 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">System CPU Usage & Temperature</h5>
+                </div>
+                <div class="card-body">
+                    <ApexChart TItem="CpuTempMetric"
+                               Title="CPU Usage, Thermal Limit & Temperature"
+                               Options="combinedCpuChartOptions"
+                               Height="350">
+                        <ApexPointSeries TItem="CpuTempMetric"
+                                         Items="cpuTempMetrics"
                                          Name="CPU %"
-                                         SeriesType="SeriesType.Area"
+                                         SeriesType="SeriesType.Line"
                                          XValue="@(e => e.Timestamp)"
                                          YAggregate="@(e => e.Sum(x => x.CpuUsage ?? 0))"
                                          OrderBy="@(e => e.X)" />
-                        @if (cpuMetrics.Any(m => m.ThermalLimitPercent.HasValue))
-                        {
-                            <ApexPointSeries TItem="CpuMetric"
-                                             Items="cpuMetrics.Where(m => m.ThermalLimitPercent.HasValue)"
-                                             Name="Thermal Limit %"
-                                             SeriesType="SeriesType.Line"
-                                             XValue="@(e => e.Timestamp)"
-                                             YAggregate="@(e => e.Sum(x => x.ThermalLimitPercent ?? 0))"
-                                             OrderBy="@(e => e.X)" />
-                        }
+                        <ApexPointSeries TItem="CpuTempMetric"
+                                         Items="cpuTempMetrics"
+                                         Name="Thermal Limit %"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="@(e => e.Timestamp)"
+                                         YAggregate="@(e => e.Sum(x => x.ThermalLimitPercent ?? 0))"
+                                         OrderBy="@(e => e.X)" />
+                        <ApexPointSeries TItem="CpuTempMetric"
+                                         Items="cpuTempMetrics"
+                                         Name="CPU Tctl/Tdie"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="@(e => e.Timestamp)"
+                                         YAggregate="@(e => e.Sum(x => x.CpuTctlTdie ?? 0))"
+                                         OrderBy="@(e => e.X)" />
+                        <ApexPointSeries TItem="CpuTempMetric"
+                                         Items="cpuTempMetrics"
+                                         Name="CPU Die Average"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="@(e => e.Timestamp)"
+                                         YAggregate="@(e => e.Sum(x => x.CpuDieAverage ?? 0))"
+                                         OrderBy="@(e => e.X)" />
                     </ApexChart>
                 </div>
             </div>
         </div>
+    </div>
 
+    <div class="row">
         <!-- Memory Usage Chart -->
-        <div class="col-md-6 mb-4">
+        <div class="col-md-12 mb-4">
             <div class="card">
                 <div class="card-header">
                     <h5 class="mb-0">System Memory Usage</h5>
@@ -111,47 +186,6 @@ else
             </div>
         </div>
     </div>
-
-    @if (temperatures.Any())
-    {
-        <div class="row">
-            <!-- CPU Temperature Chart -->
-            <div class="col-md-12 mb-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">CPU Temperatures</h5>
-                    </div>
-                    <div class="card-body">
-                        <ApexChart TItem="TempReading"
-                                   Title="CPU Temperature Over Time"
-                                   Options="temperatureChartOptions"
-                                   Height="300">
-                            @if (tempReadings.Any(t => t.CpuTctlTdie.HasValue))
-                            {
-                                <ApexPointSeries TItem="TempReading"
-                                                 Items="tempReadings.Where(t => t.CpuTctlTdie.HasValue)"
-                                                 Name="CPU Tctl/Tdie"
-                                                 SeriesType="SeriesType.Line"
-                                                 XValue="@(e => e.Timestamp)"
-                                                 YAggregate="@(e => e.Sum(x => x.CpuTctlTdie ?? 0))"
-                                                 OrderBy="@(e => e.X)" />
-                            }
-                            @if (tempReadings.Any(t => t.CpuDieAverage.HasValue))
-                            {
-                                <ApexPointSeries TItem="TempReading"
-                                                 Items="tempReadings.Where(t => t.CpuDieAverage.HasValue)"
-                                                 Name="CPU Die Average"
-                                                 SeriesType="SeriesType.Line"
-                                                 XValue="@(e => e.Timestamp)"
-                                                 YAggregate="@(e => e.Sum(x => x.CpuDieAverage ?? 0))"
-                                                 OrderBy="@(e => e.X)" />
-                            }
-                        </ApexChart>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
 
     @if (processMetrics.Any())
     {
@@ -183,36 +217,6 @@ else
             </div>
         </div>
     }
-
-    <div class="row">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Summary Statistics</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-3">
-                            <h6>Average CPU Usage</h6>
-                            <h3 class="text-primary">@($"{snapshots.Average(s => s.TotalCpuUsage ?? 0):F1}%")</h3>
-                        </div>
-                        <div class="col-md-3">
-                            <h6>Peak CPU Usage</h6>
-                            <h3 class="text-danger">@($"{snapshots.Max(s => s.TotalCpuUsage ?? 0):F1}%")</h3>
-                        </div>
-                        <div class="col-md-3">
-                            <h6>Average Memory Used</h6>
-                            <h3 class="text-info">@($"{snapshots.Average(s => s.TotalMemoryUsageMb ?? 0):N0} MB")</h3>
-                        </div>
-                        <div class="col-md-3">
-                            <h6>Data Points</h6>
-                            <h3 class="text-success">@snapshots.Count</h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 }
 
 @code {
@@ -221,6 +225,7 @@ else
     private Dictionary<string, List<ProcessMetric>> processMetrics = new();
     private List<TempReading> tempReadings = new();
     private List<CpuMetric> cpuMetrics = new();
+    private List<CpuTempMetric> cpuTempMetrics = new();
     private int selectedMinutes = 10;
     private bool isLoading = true;
     private bool hasError = false;
@@ -228,40 +233,150 @@ else
     private System.Threading.Timer? refreshTimer;
     private int secondsUntilRefresh = 15;
     private const int RefreshIntervalSeconds = 15;
+    private bool autoRefreshEnabled = true;
+
+    private ApexChartOptions<CpuTempMetric> combinedCpuChartOptions = new()
+    {
+        Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Xaxis = new XAxis 
+        { 
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+        },
+        Yaxis = new List<YAxis> 
+        { 
+            new YAxis 
+            { 
+                Title = new AxisTitle { Text = "CPU % / Temperature (°C)", Style = new AxisTitleStyle { Color = "#e0e0e0" } },
+                Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+            }
+        },
+        Colors = new List<string> { "#008FFB", "#FF4560", "#FEB019", "#FF6B9D" },
+        Legend = new Legend { Labels = new LegendLabels { Colors = "#e0e0e0" } },
+        Tooltip = new Tooltip 
+        { 
+            Theme = Mode.Light,
+            Style = new TooltipStyle { FontSize = "12px" },
+            X = new TooltipX { Format = "dd MMM HH:mm" },
+            Shared = true
+        }
+    };
 
     private ApexChartOptions<CpuMetric> cpuChartOptions = new()
     {
         Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
         Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
-        Xaxis = new XAxis { Type = XAxisType.Datetime },
-        Yaxis = new List<YAxis> { new YAxis { Min = 0, Max = 100, Title = new AxisTitle { Text = "Percentage (%)" } } },
-        Colors = new List<string> { "#008FFB", "#FF4560" }
+        Xaxis = new XAxis 
+        { 
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+        },
+        Yaxis = new List<YAxis> 
+        { 
+            new YAxis 
+            { 
+                Min = 0, 
+                Max = 100, 
+                Title = new AxisTitle { Text = "Percentage (%)", Style = new AxisTitleStyle { Color = "#e0e0e0" } },
+                Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+            } 
+        },
+        Colors = new List<string> { "#008FFB", "#FF4560" },
+        Legend = new Legend { Labels = new LegendLabels { Colors = "#e0e0e0" } },
+        Tooltip = new Tooltip 
+        { 
+            Theme = Mode.Light,
+            Style = new TooltipStyle { FontSize = "12px" },
+            X = new TooltipX { Format = "dd MMM HH:mm" }
+        }
     };
 
     private ApexChartOptions<Snapshot> memoryChartOptions = new()
     {
         Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
         Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
-        Xaxis = new XAxis { Type = XAxisType.Datetime },
-        Yaxis = new List<YAxis> { new YAxis { Min = 0, Title = new AxisTitle { Text = "Memory (MB)" } } },
-        Colors = new List<string> { "#00E396" }
+        Xaxis = new XAxis 
+        { 
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+        },
+        Yaxis = new List<YAxis> 
+        { 
+            new YAxis 
+            { 
+                Min = 0, 
+                Title = new AxisTitle { Text = "Memory (MB)", Style = new AxisTitleStyle { Color = "#e0e0e0" } },
+                Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+            } 
+        },
+        Colors = new List<string> { "#00E396" },
+        Legend = new Legend { Labels = new LegendLabels { Colors = "#e0e0e0" } },
+        Tooltip = new Tooltip 
+        { 
+            Theme = Mode.Light,
+            Style = new TooltipStyle { FontSize = "12px" },
+            X = new TooltipX { Format = "dd MMM HH:mm" }
+        }
     };
 
     private ApexChartOptions<TempReading> temperatureChartOptions = new()
     {
         Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
         Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
-        Xaxis = new XAxis { Type = XAxisType.Datetime },
-        Yaxis = new List<YAxis> { new YAxis { Title = new AxisTitle { Text = "Temperature (°C)" } } },
-        Colors = new List<string> { "#FEB019", "#FF4560" }
+        Xaxis = new XAxis 
+        { 
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+        },
+        Yaxis = new List<YAxis> 
+        { 
+            new YAxis 
+            { 
+                Title = new AxisTitle { Text = "Temperature (°C)", Style = new AxisTitleStyle { Color = "#e0e0e0" } },
+                Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+            } 
+        },
+        Colors = new List<string> { "#FEB019", "#FF4560" },
+        Legend = new Legend { Labels = new LegendLabels { Colors = "#e0e0e0" } },
+        Tooltip = new Tooltip 
+        { 
+            Theme = Mode.Light,
+            Style = new TooltipStyle { FontSize = "12px" },
+            X = new TooltipX { Format = "dd MMM HH:mm" }
+        }
     };
 
     private ApexChartOptions<ProcessMetric> processChartOptions = new()
     {
         Chart = new Chart { Toolbar = new Toolbar { Show = false } },
+        Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
         Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
-        Xaxis = new XAxis { Type = XAxisType.Datetime },
-        Yaxis = new List<YAxis> { new YAxis { Min = 0, Title = new AxisTitle { Text = "CPU %" } } }
+        Xaxis = new XAxis 
+        { 
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+        },
+        Yaxis = new List<YAxis> 
+        { 
+            new YAxis 
+            { 
+                Min = 0, 
+                Title = new AxisTitle { Text = "CPU %", Style = new AxisTitleStyle { Color = "#e0e0e0" } },
+                Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#e0e0e0" } }
+            } 
+        },
+        Legend = new Legend { Labels = new LegendLabels { Colors = "#e0e0e0" } },
+        Tooltip = new Tooltip 
+        { 
+            Theme = Mode.Light,
+            Style = new TooltipStyle { FontSize = "12px" },
+            X = new TooltipX { Format = "dd MMM HH:mm" }
+        }
     };
 
     protected override async Task OnInitializedAsync()
@@ -275,15 +390,18 @@ else
         secondsUntilRefresh = RefreshIntervalSeconds;
         refreshTimer = new System.Threading.Timer(async _ =>
         {
-            secondsUntilRefresh--;
-            
-            if (secondsUntilRefresh <= 0)
+            if (autoRefreshEnabled)
             {
-                await InvokeAsync(async () =>
+                secondsUntilRefresh--;
+                
+                if (secondsUntilRefresh <= 0)
                 {
-                    await LoadData();
-                    secondsUntilRefresh = RefreshIntervalSeconds;
-                });
+                    await InvokeAsync(async () =>
+                    {
+                        await LoadData();
+                        secondsUntilRefresh = RefreshIntervalSeconds;
+                    });
+                }
             }
             
             await InvokeAsync(StateHasChanged);
@@ -293,6 +411,18 @@ else
     private async Task SelectTimeRange(int minutes)
     {
         selectedMinutes = minutes;
+        
+        // Enable auto-refresh for 1 hour or less, disable for 3 hours or more
+        if (selectedMinutes <= 60)
+        {
+            autoRefreshEnabled = true;
+            ResetRefreshTimer();
+        }
+        else if (selectedMinutes >= 180)
+        {
+            autoRefreshEnabled = false;
+        }
+        
         await LoadData();
         ResetRefreshTimer();
     }
@@ -329,6 +459,9 @@ else
             temperatures = await MetricsService.GetCpuTemperaturesAsync(startTime, endTime);
             var topProcesses = await MetricsService.GetTopProcessesAsync(startTime, endTime, 5);
 
+            // Create a hashset of snapshot IDs that have temperature data for faster lookup
+            var snapshotsWithTemp = new HashSet<long>(temperatures.Select(t => t.SnapshotId));
+
             // Convert temperature data for charting
             tempReadings = temperatures.Select(t => new TempReading
             {
@@ -346,6 +479,23 @@ else
                 CpuUsage = s.TotalCpuUsage,
                 ThermalLimitPercent = temperatures.FirstOrDefault(t => t.SnapshotId == s.SnapshotId)?.ThermalLimitPercent
             }).ToList();
+
+            // Create combined CPU usage and temperature metrics
+            // Only include snapshots that have corresponding temperature data to avoid showing zeros
+            cpuTempMetrics = snapshots
+                .Where(s => snapshotsWithTemp.Contains(s.SnapshotId))
+                .Select(s =>
+                {
+                    var temp = temperatures.First(t => t.SnapshotId == s.SnapshotId);
+                    return new CpuTempMetric
+                    {
+                        Timestamp = s.SnapshotTimestamp,
+                        CpuUsage = s.TotalCpuUsage,
+                        ThermalLimitPercent = temp.ThermalLimitPercent,
+                        CpuTctlTdie = temp.CpuTctlTdie,
+                        CpuDieAverage = temp.CpuDieAverage
+                    };
+                }).ToList();
 
             // Convert process data for charting
             processMetrics = topProcesses.ToDictionary(
@@ -384,6 +534,15 @@ else
         public DateTime Timestamp { get; set; }
         public decimal? CpuUsage { get; set; }
         public decimal? ThermalLimitPercent { get; set; }
+    }
+
+    private class CpuTempMetric
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal? CpuUsage { get; set; }
+        public decimal? ThermalLimitPercent { get; set; }
+        public decimal? CpuTctlTdie { get; set; }
+        public decimal? CpuDieAverage { get; set; }
     }
 
     private class ProcessMetric

@@ -1,19 +1,78 @@
 html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background-color: #1a1a1a;
+    color: #e0e0e0;
 }
 
 a, .btn-link {
-    color: #006bb7;
+    color: #4da6ff;
 }
 
 .btn-primary {
     color: #fff;
-    background-color: #1b6ec2;
-    border-color: #1861ac;
+    background-color: #0d6efd;
+    border-color: #0a58ca;
+}
+
+.card {
+    background-color: #2d2d2d;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+.card-header {
+    background-color: #252525;
+    border-bottom-color: #404040;
+    color: #e0e0e0;
+}
+
+.table {
+    color: #e0e0e0;
+}
+
+.table-striped > tbody > tr:nth-of-type(odd) > * {
+    background-color: #2a2a2a;
+}
+
+.alert-warning {
+    background-color: #664d03;
+    border-color: #997404;
+    color: #ffecb5;
+}
+
+.alert-danger {
+    background-color: #842029;
+    border-color: #a52834;
+    color: #f8d7da;
+}
+
+.btn-outline-primary {
+    color: #4da6ff;
+    border-color: #4da6ff;
+}
+
+.btn-outline-primary:hover {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+    color: #fff;
+}
+
+.btn-success {
+    background-color: #198754;
+    border-color: #198754;
+}
+
+.btn-success:hover {
+    background-color: #157347;
+    border-color: #146c43;
+}
+
+.text-muted {
+    color: #adb5bd !important;
 }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+  box-shadow: 0 0 0 0.1rem #1a1a1a, 0 0 0 0.25rem #258cfb;
 }
 
 .content {
@@ -34,6 +93,22 @@ h1:focus {
 
 .validation-message {
     color: #e50000;
+}
+
+.form-control {
+    background-color: #2d2d2d;
+    border-color: #404040;
+    color: #e0e0e0;
+}
+
+.form-control:focus {
+    background-color: #363636;
+    border-color: #4da6ff;
+    color: #e0e0e0;
+}
+
+.spinner-border {
+    color: #4da6ff;
 }
 
 .blazor-error-boundary {
@@ -57,4 +132,26 @@ h1:focus {
 
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
+}
+
+/* ApexCharts tooltip styling for dark text on light background */
+.apexcharts-tooltip {
+    color: #000000 !important;
+}
+
+.apexcharts-tooltip .apexcharts-tooltip-title {
+    color: #000000 !important;
+}
+
+.apexcharts-tooltip .apexcharts-tooltip-series-group {
+    color: #000000 !important;
+}
+
+.apexcharts-tooltip .apexcharts-tooltip-text-y-label,
+.apexcharts-tooltip .apexcharts-tooltip-text-y-value {
+    color: #000000 !important;
+}
+
+.apexcharts-tooltip .apexcharts-tooltip-text {
+    color: #000000 !important;
 }
