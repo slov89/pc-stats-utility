@@ -60,11 +60,11 @@ slov89-pc-stats-utility/
 │   ├── Program.cs                     # Service configuration
 │   ├── appsettings.json              # Configuration
 │   ├── appsettings.Development.json  # Development configuration
-│   └── PCStatsService.csproj         # Project file (.NET 10)
+│   ├── PCStatsService.csproj         # Project file (.NET 10)
+│   ├── Install-Service.ps1           # Installation script
+│   └── Uninstall-Service.ps1         # Uninstallation script
 │
 ├── Set-ConnectionString.ps1          # Helper script to set connection string env var
-├── Install-Service.ps1                # Installation script
-├── Uninstall-Service.ps1             # Uninstallation script  
 ├── README.md                          # This file
 └── .gitignore                         # Git ignore file
 ```
@@ -164,7 +164,7 @@ Note: The service will run without HWiNFO, it just won't collect temperature dat
 Open PowerShell as Administrator:
 
 ```powershell
-cd "C:\Users\ezupe\Documents\Development\slov89-pc-stats-utility"
+cd "C:\Users\ezupe\Documents\Development\slov89-pc-stats-utility\PCStatsService"
 .\Install-Service.ps1
 ```
 
@@ -409,7 +409,8 @@ The service logs:
 
 ### Uninstall the service
 ```powershell
-# Using the uninstall script
+# Using the uninstall script (from PCStatsService folder)
+cd PCStatsService
 .\Uninstall-Service.ps1
 
 # Or manually

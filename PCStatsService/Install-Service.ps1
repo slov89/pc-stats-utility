@@ -17,7 +17,7 @@ Write-Host "Installing PC Stats Monitoring Service..." -ForegroundColor Cyan
 
 # Build and publish the service
 Write-Host "Building service..." -ForegroundColor Yellow
-Set-Location -Path "$PSScriptRoot\PCStatsService"
+Set-Location -Path "$PSScriptRoot"
 dotnet publish -c Release -o $InstallPath
 
 if ($LASTEXITCODE -ne 0) {
@@ -54,7 +54,8 @@ sc.exe failure $ServiceName reset= 86400 actions= restart/60000/restart/60000/re
 
 Write-Host "`nService installed successfully!" -ForegroundColor Green
 Write-Host "`nIMPORTANT: Before starting the service:" -ForegroundColor Cyan
-Write-Host "1. Update the connection string in: $InstallPath\appsettings.json" -ForegroundColor Yellow
+Write-Host "1. Set the environment variable 'slov89_pc_stats_utility_pg' with your PostgreSQL connection string" -ForegroundColor Yellow
+Write-Host "   (Use Set-ConnectionString.ps1 in the root folder)" -ForegroundColor Yellow
 Write-Host "2. Ensure PostgreSQL database is set up (see Database\README.md)" -ForegroundColor Yellow
 Write-Host "3. Install and configure HWiNFO v8.14 with shared memory enabled" -ForegroundColor Yellow
 
