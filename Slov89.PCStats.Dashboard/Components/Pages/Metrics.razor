@@ -200,7 +200,6 @@ else
     private bool hasError = false;
     private string errorMessage = string.Empty;
     private System.Threading.Timer? refreshTimer;
-    private int secondsUntilRefresh = 1;
     private const int RefreshIntervalSeconds = 1;
     private bool autoRefreshEnabled = true;
     private IJSObjectReference? jsModule;
@@ -359,7 +358,6 @@ else
         // Dispose existing timer to prevent multiple timers running
         refreshTimer?.Dispose();
         
-        secondsUntilRefresh = RefreshIntervalSeconds;
         // Refresh data every second
         refreshTimer = new System.Threading.Timer(_ =>
         {

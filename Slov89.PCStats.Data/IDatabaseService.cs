@@ -16,6 +16,14 @@ public interface IDatabaseService
     Task<Dictionary<string, int>> BatchGetOrCreateProcessesAsync(List<(string processName, string? processPath)> processes);
     Task BatchCreateProcessSnapshotsAsync(long snapshotId, List<(int processId, ProcessInfo processInfo)> processSnapshots);
     
+    // Atomic snapshot creation with all related data in a single transaction
+    Task<long> CreateSnapshotWithDataAsync(
+        decimal? totalCpuUsage, 
+        long? totalMemoryMb, 
+        long? availableMemoryMb,
+        List<(int processId, ProcessInfo processInfo)> processSnapshots,
+        CpuTemperature? cpuTemperature);
+    
     // Offline storage recovery methods
     Task<bool> IsConnectionAvailableAsync();
     Task<long> RestoreOfflineSnapshotAsync(OfflineSnapshotData snapshotData);

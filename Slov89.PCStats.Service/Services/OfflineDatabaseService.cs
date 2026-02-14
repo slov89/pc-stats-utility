@@ -372,4 +372,86 @@ public class OfflineDatabaseService : IDatabaseService
             }
         }
     }
+
+    public async Task<long> CreateSnapshotWithDataAsync(
+        decimal? totalCpuUsage, 
+        long? totalMemoryMb, 
+        long? availableMemoryMb,
+        List<(int processId, ProcessInfo processInfo)> processSnapshots,
+        CpuTemperature? cpuTemperature)
+    {
+        try
+        {
+            var result = await _databaseService.CreateSnapshotWithDataAsync(
+                totalCpuUsage, 
+                totalMemoryMb, 
+                availableMemoryMb,
+                processSnapshots,
+                cpuTemperature);
+            
+            // If we were in offline mode and this succeeds, we're back online
+            if (_isOfflineMode)
+            {
+                _isOfflineMode = false;
+                _logger.LogInformation("Database connection restored, switching back to online mode");
+                
+                // Start recovery process in background
+                _ = Task.Run(async () => await TryRecoverOfflineDataAsync());
+            }
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Database unavailable for snapshot creation, switching to offline mode");
+            _isOfflineMode = true;
+            
+            // Return a local snapshot ID for offline storage
+            var localSnapshotId = _offlineStorage.GetNextLocalSnapshotId();
+            
+            // Store the snapshot data for later recovery
+            var snapshotData = new OfflineSnapshotData
+            {
+                TotalCpuUsage = totalCpuUsage,
+                TotalMemoryMb = totalMemoryMb,
+                AvailableMemoryMb = availableMemoryMb,
+                LocalSnapshotId = localSnapshotId,
+                Timestamp = DateTime.UtcNow
+            };
+
+            // Create a batch for this snapshot
+            var batch = new OfflineSnapshotBatch
+            {
+                LocalSnapshotId = localSnapshotId,
+                SnapshotData = snapshotData
+            };
+
+            // Add process snapshots
+            foreach (var (processId, processInfo) in processSnapshots)
+            {
+                batch.ProcessSnapshots.Add(new OfflineProcessSnapshotData
+                {
+                    LocalSnapshotId = localSnapshotId,
+                    LocalProcessId = processId,
+                    ProcessInfo = processInfo,
+                    ProcessName = processInfo.ProcessName,
+                    ProcessPath = processInfo.ProcessPath
+                });
+            }
+
+            // Add CPU temperature if provided
+            if (cpuTemperature != null)
+            {
+                batch.CpuTemperature = new OfflineCpuTemperatureData
+                {
+                    LocalSnapshotId = localSnapshotId,
+                    Temperature = cpuTemperature
+                };
+            }
+            
+            await _offlineStorage.SaveOfflineSnapshotAsync(batch);
+            
+            return localSnapshotId;
+        }
+    }
 }

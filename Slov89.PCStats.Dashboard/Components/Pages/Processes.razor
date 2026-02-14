@@ -1,19 +1,46 @@
 @page "/processes"
 @using Slov89.PCStats.Data
 @inject IMetricsService MetricsService
+@inject IJSRuntime JSRuntime
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 
 <PageTitle>Processes</PageTitle>
 
 <h1>Processes</h1>
 
 <div class="mb-3">
-    <button type="button" class="btn btn-success" @onclick="RefreshData">
-        <span class="bi bi-arrow-clockwise"></span> Refresh
+    <button type="button" class="btn btn-primary" @onclick="NavigateToPrevious" disabled="@(!CanNavigatePrevious())">
+        <span class="bi bi-arrow-left"></span> Previous
     </button>
-    @if (lastUpdated.HasValue)
+    
+    @if (currentSnapshot != null)
     {
-        <span class="ms-2 text-muted">Last updated: @lastUpdated.Value.ToString("HH:mm:ss")</span>
+        <span class="ms-3 me-3 snapshot-info">
+            <strong>Snapshot:</strong> @currentSnapshot.SnapshotTimestamp.ToString("yyyy-MM-dd HH:mm:ss")
+            <span class="ms-3">
+                <strong>CPU:</strong> @(currentSnapshot.TotalCpuUsage?.ToString("F2") ?? "N/A")%
+            </span>
+            <span class="ms-3">
+                <strong>Memory:</strong> @((currentSnapshot.TotalMemoryUsageMb ?? 0).ToString("N0")) MB
+            </span>
+            <span class="ms-3">
+                <strong>Available:</strong> @((currentSnapshot.TotalAvailableMemoryMb ?? 0).ToString("N0")) MB
+            </span>
+        </span>
+    }
+    
+    <button type="button" class="btn btn-primary" @onclick="NavigateToNext" disabled="@(!CanNavigateNext())">
+        Next <span class="bi bi-arrow-right"></span>
+    </button>
+    
+    <button type="button" class="btn btn-success ms-2" @onclick="LoadLatestSnapshot">
+        <span class="bi bi-arrow-clockwise"></span> Latest
+    </button>
+    
+    @if (snapshotsLoaded && snapshots.Any())
+    {
+        <span class="ms-2 text-muted">(@(currentSnapshotIndex + 1) of @snapshots.Count)</span>
     }
 </div>
 
@@ -37,7 +64,13 @@ else if (!processGroups.Any())
 {
     <div class="alert alert-warning" role="alert">
         <h4 class="alert-heading">No Data Available</h4>
-        <p>No process data found.</p>
+        <p>No process data found for this snapshot.</p>
+        @if (currentSnapshot != null)
+        {
+            <p class="mb-0">
+                <small>Snapshot ID: @currentSnapshot.SnapshotId | Timestamp: @currentSnapshot.SnapshotTimestamp.ToString("yyyy-MM-dd HH:mm:ss")</small>
+            </p>
+        }
     </div>
 }
 else
@@ -211,38 +244,137 @@ else
         top: 0;
         z-index: 10;
     }
+
+    .snapshot-info {
+        font-size: 0.95rem;
+        vertical-align: middle;
+    }
 </style>
 
 @code {
     private List<ProcessSnapshotDetail> processes = new();
     private List<ProcessGroup> processGroups = new();
+    private List<SnapshotInfo> snapshots = new();
+    private SnapshotInfo? currentSnapshot = null;
+    private int currentSnapshotIndex = 0;
     private HashSet<string> expandedProcesses = new();
     private bool isLoading = true;
     private bool hasError = false;
     private string errorMessage = string.Empty;
-    private DateTime? lastUpdated;
     private string sortColumn = "PrivateMemoryMb";
     private bool sortDescending = true;
+    private IJSObjectReference? jsModule;
+    private bool snapshotsLoaded = false;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadData();
+        await LoadLatestSnapshot();
     }
 
-    private async Task RefreshData()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await LoadData();
+        if (firstRender)
+        {
+            jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/Processes.razor.js");
+            await jsModule.InvokeVoidAsync("setupKeyboardNavigation", DotNetObjectReference.Create(this));
+        }
     }
 
-    private async Task LoadData()
+    [JSInvokable]
+    public async Task HandleKeyPress(string key)
     {
+        if (key == "ArrowLeft")
+        {
+            await NavigateToPrevious();
+        }
+        else if (key == "ArrowRight")
+        {
+            await NavigateToNext();
+        }
+    }
+
+    private async Task LoadLatestSnapshot()
+    {
+        isLoading = true;
+        hasError = false;
+        errorMessage = string.Empty;
+        snapshotsLoaded = false; // Reset to force reload of snapshot list
+
+        try
+        {
+            currentSnapshot = await MetricsService.GetLatestSnapshotInfoAsync();
+            
+            if (currentSnapshot == null)
+            {
+                hasError = true;
+                errorMessage = "No snapshots found in the database. Please ensure the PCStats Service is running and collecting data.";
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            await LoadCurrentSnapshotData();
+            
+            // Load all snapshots for navigation
+            await EnsureSnapshotsLoaded();
+        }
+        catch (Exception ex)
+        {
+            hasError = true;
+            errorMessage = $"Error loading latest snapshot: {ex.Message}";
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task EnsureSnapshotsLoaded()
+    {
+        if (snapshotsLoaded)
+        {
+            return;
+        }
+
+        try
+        {
+            snapshots = await MetricsService.GetAllSnapshotInfosAsync();
+            
+            if (currentSnapshot != null)
+            {
+                // Find current snapshot's index in the list
+                currentSnapshotIndex = snapshots.FindIndex(s => s.SnapshotId == currentSnapshot.SnapshotId);
+                if (currentSnapshotIndex == -1)
+                {
+                    currentSnapshotIndex = 0;
+                }
+            }
+            
+            snapshotsLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            hasError = true;
+            errorMessage = $"Error loading snapshot list: {ex.Message}";
+        }
+    }
+
+    private async Task LoadCurrentSnapshotData()
+    {
+        if (currentSnapshot == null)
+        {
+            hasError = true;
+            errorMessage = "No current snapshot selected.";
+            isLoading = false;
+            StateHasChanged();
+            return;
+        }
+
         isLoading = true;
         hasError = false;
         errorMessage = string.Empty;
 
         try
         {
-            processes = await MetricsService.GetLatestProcessSnapshotsAsync();
+            processes = await MetricsService.GetProcessSnapshotsByIdAsync(currentSnapshot.SnapshotId);
             
             // Group processes by name
             processGroups = processes
@@ -262,17 +394,60 @@ else
                     ProcessPath = g.First().ProcessPath ?? string.Empty
                 })
                 .ToList();
-
-            lastUpdated = DateTime.Now;
         }
         catch (Exception ex)
         {
             hasError = true;
-            errorMessage = ex.Message;
+            errorMessage = $"Error loading process data: {ex.Message}";
         }
         finally
         {
             isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool CanNavigatePrevious()
+    {
+        return snapshotsLoaded && currentSnapshotIndex < snapshots.Count - 1;
+    }
+
+    private bool CanNavigateNext()
+    {
+        return snapshotsLoaded && currentSnapshotIndex > 0;
+    }
+
+    private async Task NavigateToPrevious()
+    {
+        await EnsureSnapshotsLoaded();
+        
+        if (CanNavigatePrevious())
+        {
+            currentSnapshotIndex++;
+            currentSnapshot = snapshots[currentSnapshotIndex];
+            StateHasChanged(); // Force UI update for counter
+            await LoadCurrentSnapshotData();
+        }
+    }
+
+    private async Task NavigateToNext()
+    {
+        await EnsureSnapshotsLoaded();
+        
+        if (CanNavigateNext())
+        {
+            currentSnapshotIndex--;
+            currentSnapshot = snapshots[currentSnapshotIndex];
+            StateHasChanged(); // Force UI update for counter
+            await LoadCurrentSnapshotData();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (jsModule != null)
+        {
+            await jsModule.DisposeAsync();
         }
     }
 

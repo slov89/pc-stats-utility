@@ -328,4 +328,183 @@ public class MetricsService : IMetricsService
 
         return processDetails;
     }
+
+    public async Task<List<SnapshotInfo>> GetAllSnapshotInfosAsync()
+    {
+        var snapshots = new List<SnapshotInfo>();
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+                SELECT snapshot_id, snapshot_timestamp, total_cpu_usage, 
+                       total_memory_usage_mb, total_available_memory_mb
+                FROM snapshots
+                ORDER BY snapshot_timestamp DESC";
+
+            await using var command = new NpgsqlCommand(sql, connection);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var timestamp = reader.GetDateTime(1);
+                var localTimestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime();
+                
+                snapshots.Add(new SnapshotInfo
+                {
+                    SnapshotId = reader.GetInt64(0),
+                    SnapshotTimestamp = localTimestamp,
+                    TotalCpuUsage = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                    TotalMemoryUsageMb = reader.IsDBNull(3) ? null : reader.GetInt64(3),
+                    TotalAvailableMemoryMb = reader.IsDBNull(4) ? null : reader.GetInt64(4)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching all snapshot infos");
+            throw;
+        }
+
+        return snapshots;
+    }
+
+    public async Task<SnapshotInfo?> GetLatestSnapshotInfoAsync()
+    {
+        SnapshotInfo? snapshotInfo = null;
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+                SELECT snapshot_id, snapshot_timestamp, total_cpu_usage, 
+                       total_memory_usage_mb, total_available_memory_mb
+                FROM snapshots
+                WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM snapshots)";
+
+            await using var command = new NpgsqlCommand(sql, connection);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var timestamp = reader.GetDateTime(1);
+                var localTimestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime();
+                
+                snapshotInfo = new SnapshotInfo
+                {
+                    SnapshotId = reader.GetInt64(0),
+                    SnapshotTimestamp = localTimestamp,
+                    TotalCpuUsage = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                    TotalMemoryUsageMb = reader.IsDBNull(3) ? null : reader.GetInt64(3),
+                    TotalAvailableMemoryMb = reader.IsDBNull(4) ? null : reader.GetInt64(4)
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching latest snapshot info");
+            throw;
+        }
+
+        return snapshotInfo;
+    }
+
+    public async Task<SnapshotInfo?> GetSnapshotInfoAsync(long snapshotId)
+    {
+        SnapshotInfo? snapshotInfo = null;
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+                SELECT snapshot_id, snapshot_timestamp, total_cpu_usage, 
+                       total_memory_usage_mb, total_available_memory_mb
+                FROM snapshots
+                WHERE snapshot_id = @snapshotId";
+
+            await using var command = new NpgsqlCommand(sql, connection);
+            command.Parameters.AddWithValue("snapshotId", snapshotId);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var timestamp = reader.GetDateTime(1);
+                var localTimestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime();
+                
+                snapshotInfo = new SnapshotInfo
+                {
+                    SnapshotId = reader.GetInt64(0),
+                    SnapshotTimestamp = localTimestamp,
+                    TotalCpuUsage = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                    TotalMemoryUsageMb = reader.IsDBNull(3) ? null : reader.GetInt64(3),
+                    TotalAvailableMemoryMb = reader.IsDBNull(4) ? null : reader.GetInt64(4)
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching snapshot info for snapshot_id {SnapshotId}", snapshotId);
+            throw;
+        }
+
+        return snapshotInfo;
+    }
+
+    public async Task<List<ProcessSnapshotDetail>> GetProcessSnapshotsByIdAsync(long snapshotId)
+    {
+        var processDetails = new List<ProcessSnapshotDetail>();
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+                SELECT ps.process_snapshot_id, ps.pid, p.process_name, p.process_path,
+                       ps.cpu_usage, ps.private_memory_mb, ps.vram_usage_mb,
+                       ps.thread_count, ps.handle_count, p.first_seen, p.last_seen
+                FROM process_snapshots ps
+                INNER JOIN processes p ON ps.process_id = p.process_id
+                WHERE ps.snapshot_id = @snapshotId
+                ORDER BY p.process_name, ps.pid";
+
+            await using var command = new NpgsqlCommand(sql, connection);
+            command.Parameters.AddWithValue("snapshotId", snapshotId);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var firstSeen = reader.GetDateTime(9);
+                var lastSeen = reader.GetDateTime(10);
+                
+                processDetails.Add(new ProcessSnapshotDetail
+                {
+                    ProcessSnapshotId = reader.GetInt64(0),
+                    Pid = reader.GetInt32(1),
+                    ProcessName = reader.GetString(2),
+                    ProcessPath = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    CpuUsage = reader.IsDBNull(4) ? null : reader.GetDecimal(4),
+                    PrivateMemoryMb = reader.IsDBNull(5) ? null : reader.GetInt64(5),
+                    VramUsageMb = reader.IsDBNull(6) ? null : reader.GetInt64(6),
+                    ThreadCount = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    HandleCount = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+                    FirstSeen = DateTime.SpecifyKind(firstSeen, DateTimeKind.Utc).ToLocalTime(),
+                    LastSeen = DateTime.SpecifyKind(lastSeen, DateTimeKind.Utc).ToLocalTime()
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching process snapshots for snapshot_id {SnapshotId}", snapshotId);
+            throw;
+        }
+
+        return processDetails;
+    }
 }

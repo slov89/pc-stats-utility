@@ -140,15 +140,6 @@ public class Worker : BackgroundService
         var totalMemoryMb = totalMemoryInfo.TotalAvailableMemoryBytes / (1024 * 1024);
         var usedMemoryMb = totalMemoryMb - availableMemoryMb;
 
-        // Create snapshot in database
-        var snapshotId = await _databaseService.CreateSnapshotAsync(
-            systemCpuUsage,
-            usedMemoryMb,
-            availableMemoryMb);
-
-        _logger.LogInformation("Created snapshot {SnapshotId} - System CPU: {CpuUsage}%, Memory Used: {MemoryMb}MB",
-            snapshotId, systemCpuUsage, usedMemoryMb);
-
         // Get running processes
         var processes = await _processMonitor.GetRunningProcessesAsync();
         _logger.LogDebug("Found {TotalProcessCount} running processes", processes.Count);
@@ -183,37 +174,37 @@ public class Worker : BackgroundService
             }
         }
 
-        // Batch insert all process snapshots with a single database operation
-        await _databaseService.BatchCreateProcessSnapshotsAsync(snapshotId, processSnapshots);
-
-        // Get and store CPU temperatures
+        // Get CPU temperatures
         _logger.LogDebug("Attempting to read CPU temperatures from HWiNFO...");
         var temperatures = await _hwinfoService.GetCpuTemperaturesAsync();
+
+        // Create snapshot and all related data atomically in a single transaction
+        var snapshotId = await _databaseService.CreateSnapshotWithDataAsync(
+            systemCpuUsage,
+            usedMemoryMb,
+            availableMemoryMb,
+            processSnapshots,
+            temperatures);
+
+        _logger.LogInformation("Created snapshot {SnapshotId} - System CPU: {CpuUsage}%, Memory Used: {MemoryMb}MB",
+            snapshotId, systemCpuUsage, usedMemoryMb);
+
+        // Log temperature information if available
         if (temperatures != null)
         {
-            try
+            var tempReadings = new List<string>();
+            if (temperatures.CpuTctlTdie.HasValue) tempReadings.Add($"Tctl/Tdie: {temperatures.CpuTctlTdie:F1}°C");
+            if (temperatures.CpuDieAverage.HasValue) tempReadings.Add($"Die Avg: {temperatures.CpuDieAverage:F1}°C");
+            if (temperatures.CpuCcd1Tdie.HasValue) tempReadings.Add($"CCD1: {temperatures.CpuCcd1Tdie:F1}°C");
+            if (temperatures.CpuCcd2Tdie.HasValue) tempReadings.Add($"CCD2: {temperatures.CpuCcd2Tdie:F1}°C");
+            
+            if (tempReadings.Any())
             {
-                await _databaseService.CreateCpuTemperatureAsync(snapshotId, temperatures);
-                
-                // Log available temperature readings
-                var tempReadings = new List<string>();
-                if (temperatures.CpuTctlTdie.HasValue) tempReadings.Add($"Tctl/Tdie: {temperatures.CpuTctlTdie:F1}°C");
-                if (temperatures.CpuDieAverage.HasValue) tempReadings.Add($"Die Avg: {temperatures.CpuDieAverage:F1}°C");
-                if (temperatures.CpuCcd1Tdie.HasValue) tempReadings.Add($"CCD1: {temperatures.CpuCcd1Tdie:F1}°C");
-                if (temperatures.CpuCcd2Tdie.HasValue) tempReadings.Add($"CCD2: {temperatures.CpuCcd2Tdie:F1}°C");
-                
-                if (tempReadings.Any())
-                {
-                    _logger.LogInformation("CPU Temperatures: {Temps}", string.Join(", ", tempReadings));
-                }
-                else
-                {
-                    _logger.LogWarning("Temperature object returned but no values were set");
-                }
+                _logger.LogInformation("CPU Temperatures: {Temps}", string.Join(", ", tempReadings));
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError(ex, "Error storing CPU temperatures");
+                _logger.LogWarning("Temperature object returned but no values were set");
             }
         }
         else

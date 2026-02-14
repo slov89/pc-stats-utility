@@ -9,6 +9,10 @@ public interface IMetricsService
     Task<Dictionary<string, List<(DateTime timestamp, decimal cpuUsage, long memoryMb)>>> GetTopProcessesAsync(DateTime startTime, DateTime endTime, int topCount = 5);
     Task<Dictionary<long, List<ProcessSnapshotWithName>>> GetProcessSnapshotsAsync(DateTime startTime, DateTime endTime);
     Task<List<ProcessSnapshotDetail>> GetLatestProcessSnapshotsAsync();
+    Task<List<SnapshotInfo>> GetAllSnapshotInfosAsync();
+    Task<SnapshotInfo?> GetLatestSnapshotInfoAsync();
+    Task<SnapshotInfo?> GetSnapshotInfoAsync(long snapshotId);
+    Task<List<ProcessSnapshotDetail>> GetProcessSnapshotsByIdAsync(long snapshotId);
 }
 
 public class ProcessSnapshotWithName
@@ -34,4 +38,13 @@ public class ProcessSnapshotDetail
     public int? HandleCount { get; set; }
     public DateTime FirstSeen { get; set; }
     public DateTime LastSeen { get; set; }
+}
+
+public class SnapshotInfo
+{
+    public long SnapshotId { get; set; }
+    public DateTime SnapshotTimestamp { get; set; }
+    public decimal? TotalCpuUsage { get; set; }
+    public long? TotalMemoryUsageMb { get; set; }
+    public long? TotalAvailableMemoryMb { get; set; }
 }

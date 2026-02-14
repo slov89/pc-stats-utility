@@ -293,6 +293,116 @@ public class DatabaseService : IDatabaseService
         await command.ExecuteNonQueryAsync();
     }
 
+    public async Task<long> CreateSnapshotWithDataAsync(
+        decimal? totalCpuUsage, 
+        long? totalMemoryMb, 
+        long? availableMemoryMb,
+        List<(int processId, ProcessInfo processInfo)> processSnapshots,
+        CpuTemperature? cpuTemperature)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        // Use a transaction to ensure atomicity
+        await using var transaction = await connection.BeginTransactionAsync();
+        
+        try
+        {
+            // 1. Create the snapshot
+            const string snapshotSql = @"
+                INSERT INTO snapshots (snapshot_timestamp, total_cpu_usage, total_memory_usage_mb, total_available_memory_mb)
+                VALUES (NOW(), @totalCpuUsage, @totalMemoryMb, @availableMemoryMb)
+                RETURNING snapshot_id";
+
+            long snapshotId;
+            await using (var command = new NpgsqlCommand(snapshotSql, connection, transaction))
+            {
+                command.Parameters.AddWithValue("totalCpuUsage", (object?)totalCpuUsage ?? DBNull.Value);
+                command.Parameters.AddWithValue("totalMemoryMb", (object?)totalMemoryMb ?? DBNull.Value);
+                command.Parameters.AddWithValue("availableMemoryMb", (object?)availableMemoryMb ?? DBNull.Value);
+
+                var result = await command.ExecuteScalarAsync();
+                snapshotId = Convert.ToInt64(result);
+            }
+
+            // 2. Create process snapshots (if any)
+            if (processSnapshots.Any())
+            {
+                var valuesClauses = new List<string>();
+                var parameters = new List<NpgsqlParameter>();
+                
+                for (int i = 0; i < processSnapshots.Count; i++)
+                {
+                    var (processId, processInfo) = processSnapshots[i];
+                    var prefix = $"p{i}";
+                    
+                    valuesClauses.Add($"(@snapshotId, @{prefix}_processId, @{prefix}_pid, @{prefix}_cpuUsage, @{prefix}_memoryUsageMb, @{prefix}_privateMemoryMb, @{prefix}_virtualMemoryMb, @{prefix}_vramUsageMb, @{prefix}_threadCount, @{prefix}_handleCount)");
+                    
+                    parameters.Add(new NpgsqlParameter($"{prefix}_processId", processId));
+                    parameters.Add(new NpgsqlParameter($"{prefix}_pid", processInfo.Pid));
+                    parameters.Add(new NpgsqlParameter($"{prefix}_cpuUsage", processInfo.CpuUsage));
+                    parameters.Add(new NpgsqlParameter($"{prefix}_memoryUsageMb", processInfo.MemoryUsageMb));
+                    parameters.Add(new NpgsqlParameter($"{prefix}_privateMemoryMb", processInfo.PrivateMemoryMb));
+                    parameters.Add(new NpgsqlParameter($"{prefix}_virtualMemoryMb", processInfo.VirtualMemoryMb));
+                    parameters.Add(new NpgsqlParameter($"{prefix}_vramUsageMb", (object?)processInfo.VramUsageMb ?? DBNull.Value));
+                    parameters.Add(new NpgsqlParameter($"{prefix}_threadCount", processInfo.ThreadCount));
+                    parameters.Add(new NpgsqlParameter($"{prefix}_handleCount", processInfo.HandleCount));
+                }
+
+                var processSql = $@"
+                    INSERT INTO process_snapshots (
+                        snapshot_id, process_id, pid, cpu_usage, memory_usage_mb, 
+                        private_memory_mb, virtual_memory_mb, vram_usage_mb, 
+                        thread_count, handle_count
+                    )
+                    VALUES {string.Join(", ", valuesClauses)}";
+
+                await using (var command = new NpgsqlCommand(processSql, connection, transaction))
+                {
+                    command.Parameters.Add(new NpgsqlParameter("snapshotId", snapshotId));
+                    foreach (var param in parameters)
+                    {
+                        command.Parameters.Add(param);
+                    }
+
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 3. Create CPU temperature (if provided)
+            if (cpuTemperature != null)
+            {
+                const string tempSql = @"
+                    INSERT INTO cpu_temperatures (snapshot_id, cpu_tctl_tdie, cpu_die_average, cpu_ccd1_tdie, cpu_ccd2_tdie, thermal_limit_percent, thermal_throttling)
+                    VALUES (@snapshotId, @cpuTctlTdie, @cpuDieAverage, @cpuCcd1Tdie, @cpuCcd2Tdie, @thermalLimitPercent, @thermalThrottling)";
+
+                await using (var command = new NpgsqlCommand(tempSql, connection, transaction))
+                {
+                    command.Parameters.AddWithValue("snapshotId", snapshotId);
+                    command.Parameters.AddWithValue("cpuTctlTdie", (object?)cpuTemperature.CpuTctlTdie ?? DBNull.Value);
+                    command.Parameters.AddWithValue("cpuDieAverage", (object?)cpuTemperature.CpuDieAverage ?? DBNull.Value);
+                    command.Parameters.AddWithValue("cpuCcd1Tdie", (object?)cpuTemperature.CpuCcd1Tdie ?? DBNull.Value);
+                    command.Parameters.AddWithValue("cpuCcd2Tdie", (object?)cpuTemperature.CpuCcd2Tdie ?? DBNull.Value);
+                    command.Parameters.AddWithValue("thermalLimitPercent", (object?)cpuTemperature.ThermalLimitPercent ?? DBNull.Value);
+                    command.Parameters.AddWithValue("thermalThrottling", (object?)cpuTemperature.ThermalThrottling ?? DBNull.Value);
+
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // Commit the transaction
+            await transaction.CommitAsync();
+
+            return snapshotId;
+        }
+        catch
+        {
+            // Rollback on any error
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
     public async Task<bool> IsConnectionAvailableAsync()
     {
         try
