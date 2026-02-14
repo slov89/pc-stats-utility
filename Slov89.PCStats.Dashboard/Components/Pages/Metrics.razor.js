@@ -27,22 +27,22 @@ window.memoryTooltipFormatter = function({ series, seriesIndex, dataPointIndex, 
     let snapshotId = null;
     let topProcesses = [];
     
-    // Look for matching snapshot in the process data
-    for (const [snapId, processes] of Object.entries(processSnapshotData)) {
-        if (processes && processes.length > 0) {
-            // Find a match based on data point index or closest timestamp
-            // For now, we'll use a simpler approach - store by index
-            if (processSnapshotData[dataPointIndex]) {
-                topProcesses = processSnapshotData[dataPointIndex];
-                break;
-            }
-        }
+    // Look for matching snapshot data by index
+    let availableMemory = null;
+    if (processSnapshotData[dataPointIndex]) {
+        const snapshotData = processSnapshotData[dataPointIndex];
+        topProcesses = snapshotData.processes || [];
+        availableMemory = snapshotData.availableMemoryMb;
     }
     
     // Build HTML for tooltip
     let html = '<div class="custom-tooltip" style="padding: 8px; background: white; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">';
     html += `<div style="font-weight: bold; margin-bottom: 6px;">${formattedDate}</div>`;
-    html += `<div style="color: #00E396; margin-bottom: 8px;">Memory: ${memoryUsage.toLocaleString()} MB</div>`;
+    html += `<div style="color: #00E396; margin-bottom: 4px;">Used Memory: ${memoryUsage.toLocaleString()} MB</div>`;
+    
+    if (availableMemory !== null && availableMemory !== undefined) {
+        html += `<div style="color: #008FFB; margin-bottom: 8px;">Available Memory: ${availableMemory.toLocaleString()} MB</div>`;
+    }
     
     if (topProcesses && topProcesses.length > 0) {
         html += '<div style="border-top: 1px solid #eee; padding-top: 6px; margin-top: 4px;">';

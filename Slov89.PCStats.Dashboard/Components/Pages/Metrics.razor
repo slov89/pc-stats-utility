@@ -531,16 +531,18 @@ else
 
         try
         {
-            // Create a dictionary mapping data point index to top 5 processes
-            var tooltipData = new Dictionary<int, List<object>>();
+            // Create a dictionary mapping data point index to tooltip data (processes + available memory)
+            var tooltipData = new Dictionary<int, object>();
             
             for (int i = 0; i < snapshots.Count; i++)
             {
                 var snapshot = snapshots[i];
+                var topProcesses = new List<object>();
+                
                 if (processSnapshots.TryGetValue(snapshot.SnapshotId, out var processes))
                 {
                     // Get top 5 processes by private memory
-                    var topProcesses = processes
+                    topProcesses = processes
                         .Where(p => p.PrivateMemoryMb.HasValue)
                         .OrderByDescending(p => p.PrivateMemoryMb)
                         .Take(5)
@@ -551,9 +553,13 @@ else
                             processCount = p.ProcessCount
                         })
                         .ToList<object>();
-                    
-                    tooltipData[i] = topProcesses;
                 }
+                
+                tooltipData[i] = new
+                {
+                    processes = topProcesses,
+                    availableMemoryMb = snapshot.TotalAvailableMemoryMb
+                };
             }
             
             await jsModule.InvokeVoidAsync("updateProcessSnapshotData", tooltipData);
