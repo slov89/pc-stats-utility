@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 
 namespace Slov89.PCStats.Data;
 
+/// <summary>
+/// Provides database operations for storing PC statistics in PostgreSQL
+/// </summary>
 public class DatabaseService : IDatabaseService
 {
     private readonly string _connectionString;
@@ -17,9 +20,6 @@ public class DatabaseService : IDatabaseService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Constructor for testing that accepts connection string directly
-    /// </summary>
     public DatabaseService(string connectionString, ILogger<DatabaseService> logger)
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
@@ -84,7 +84,6 @@ public class DatabaseService : IDatabaseService
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        // Try to get existing process
         const string selectSql = @"
             SELECT process_id FROM processes 
             WHERE process_name = @processName 
@@ -97,7 +96,6 @@ public class DatabaseService : IDatabaseService
         var existingId = await selectCommand.ExecuteScalarAsync();
         if (existingId != null)
         {
-            // Update last seen
             const string updateSql = "UPDATE processes SET last_seen = NOW() WHERE process_id = @processId";
             await using var updateCommand = new NpgsqlCommand(updateSql, connection);
             updateCommand.Parameters.AddWithValue("processId", existingId);
@@ -106,7 +104,6 @@ public class DatabaseService : IDatabaseService
             return Convert.ToInt32(existingId);
         }
 
-        // Create new process
         const string insertSql = @"
             INSERT INTO processes (process_name, process_path, first_seen, last_seen)
             VALUES (@processName, @processPath, NOW(), NOW())
@@ -182,12 +179,9 @@ public class DatabaseService : IDatabaseService
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        // Use a temporary table approach for efficient bulk upsert
         await using var transaction = await connection.BeginTransactionAsync();
         try
         {
-            // For each unique process, get or create it
-            // Group by process name + path to avoid duplicates
             var uniqueProcesses = processes
                 .GroupBy(p => (p.processName, p.processPath))
                 .Select(g => g.First())
@@ -195,7 +189,6 @@ public class DatabaseService : IDatabaseService
 
             foreach (var (processName, processPath) in uniqueProcesses)
             {
-                // Try to get existing
                 const string selectSql = @"
                     SELECT process_id FROM processes 
                     WHERE process_name = @processName 
@@ -208,7 +201,6 @@ public class DatabaseService : IDatabaseService
                 var existingId = await selectCommand.ExecuteScalarAsync();
                 if (existingId != null)
                 {
-                    // Update last seen
                     const string updateSql = "UPDATE processes SET last_seen = NOW() WHERE process_id = @processId";
                     await using var updateCommand = new NpgsqlCommand(updateSql, connection, transaction);
                     updateCommand.Parameters.AddWithValue("processId", existingId);
@@ -219,7 +211,6 @@ public class DatabaseService : IDatabaseService
                 }
                 else
                 {
-                    // Create new
                     const string insertSql = @"
                         INSERT INTO processes (process_name, process_path, first_seen, last_seen)
                         VALUES (@processName, @processPath, NOW(), NOW())
@@ -253,7 +244,6 @@ public class DatabaseService : IDatabaseService
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        // Build a single INSERT with multiple VALUES for true batch performance
         var valuesClauses = new List<string>();
         var parameters = new List<NpgsqlParameter>();
         
@@ -303,12 +293,10 @@ public class DatabaseService : IDatabaseService
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        // Use a transaction to ensure atomicity
         await using var transaction = await connection.BeginTransactionAsync();
         
         try
         {
-            // 1. Create the snapshot
             const string snapshotSql = @"
                 INSERT INTO snapshots (snapshot_timestamp, total_cpu_usage, total_memory_usage_mb, total_available_memory_mb)
                 VALUES (NOW(), @totalCpuUsage, @totalMemoryMb, @availableMemoryMb)
@@ -325,7 +313,6 @@ public class DatabaseService : IDatabaseService
                 snapshotId = Convert.ToInt64(result);
             }
 
-            // 2. Create process snapshots (if any)
             if (processSnapshots.Any())
             {
                 var valuesClauses = new List<string>();
@@ -369,7 +356,6 @@ public class DatabaseService : IDatabaseService
                 }
             }
 
-            // 3. Create CPU temperature (if provided)
             if (cpuTemperature != null)
             {
                 const string tempSql = @"
@@ -390,14 +376,12 @@ public class DatabaseService : IDatabaseService
                 }
             }
 
-            // Commit the transaction
             await transaction.CommitAsync();
 
             return snapshotId;
         }
         catch
         {
-            // Rollback on any error
             await transaction.RollbackAsync();
             throw;
         }
@@ -456,21 +440,17 @@ public class DatabaseService : IDatabaseService
         await using var transaction = await connection.BeginTransactionAsync();
         try
         {
-            // 1. Restore the main snapshot
             var realSnapshotId = await RestoreOfflineSnapshotForBatch(batch.SnapshotData, connection, transaction);
             
             _logger.LogInformation("Restored offline snapshot {LocalSnapshotId} as database snapshot {RealSnapshotId}", 
                 batch.LocalSnapshotId, realSnapshotId);
 
-            // 2. Restore process snapshots
             foreach (var processSnapshot in batch.ProcessSnapshots)
             {
                 try
                 {
-                    // Get or create the process
                     var processId = await RestoreOfflineProcessForBatch(processSnapshot, connection, transaction);
                     
-                    // Create the process snapshot
                     await RestoreOfflineProcessSnapshotForBatch(realSnapshotId, processId, processSnapshot.ProcessInfo, connection, transaction);
                 }
                 catch (Exception ex)
@@ -480,7 +460,6 @@ public class DatabaseService : IDatabaseService
                 }
             }
 
-            // 3. Restore CPU temperature if available
             if (batch.CpuTemperature != null)
             {
                 try
@@ -524,7 +503,6 @@ public class DatabaseService : IDatabaseService
 
     private async Task<int> RestoreOfflineProcessForBatch(OfflineProcessSnapshotData processData, NpgsqlConnection connection, NpgsqlTransaction transaction)
     {
-        // Try to get existing process
         const string selectSql = @"
             SELECT process_id FROM processes 
             WHERE process_name = @processName 
@@ -537,7 +515,6 @@ public class DatabaseService : IDatabaseService
         var existingId = await selectCommand.ExecuteScalarAsync();
         if (existingId != null)
         {
-            // Update last seen
             const string updateSql = "UPDATE processes SET last_seen = NOW() WHERE process_id = @processId";
             await using var updateCommand = new NpgsqlCommand(updateSql, connection, transaction);
             updateCommand.Parameters.AddWithValue("processId", existingId);
@@ -546,7 +523,6 @@ public class DatabaseService : IDatabaseService
             return Convert.ToInt32(existingId);
         }
 
-        // Create new process
         const string insertSql = @"
             INSERT INTO processes (process_name, process_path, first_seen, last_seen)
             VALUES (@processName, @processPath, NOW(), NOW())

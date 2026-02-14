@@ -1,9 +1,9 @@
-namespace Slov89.PCStats.Models;
+namespace Slov89.PCStats.Data;
 
 /// <summary>
-/// Represents a snapshot of a specific process's resource usage at a point in time
+/// Represents detailed information about a process snapshot including process metadata
 /// </summary>
-public class ProcessSnapshot
+public class ProcessSnapshotDetail
 {
     /// <summary>
     /// Gets or sets the unique identifier for this process snapshot
@@ -11,19 +11,19 @@ public class ProcessSnapshot
     public long ProcessSnapshotId { get; set; }
     
     /// <summary>
-    /// Gets or sets the snapshot ID this process snapshot belongs to
-    /// </summary>
-    public long SnapshotId { get; set; }
-    
-    /// <summary>
-    /// Gets or sets the process ID from the processes table
-    /// </summary>
-    public int ProcessId { get; set; }
-    
-    /// <summary>
-    /// Gets or sets the operating system process ID (PID)
+    /// Gets or sets the process ID (PID) at the time of the snapshot
     /// </summary>
     public int Pid { get; set; }
+    
+    /// <summary>
+    /// Gets or sets the name of the process
+    /// </summary>
+    public string ProcessName { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// Gets or sets the file path of the process executable
+    /// </summary>
+    public string? ProcessPath { get; set; }
     
     /// <summary>
     /// Gets or sets the CPU usage percentage
@@ -31,19 +31,9 @@ public class ProcessSnapshot
     public decimal? CpuUsage { get; set; }
     
     /// <summary>
-    /// Gets or sets the total memory usage in megabytes
-    /// </summary>
-    public long? MemoryUsageMb { get; set; }
-    
-    /// <summary>
     /// Gets or sets the private memory usage in megabytes
     /// </summary>
     public long? PrivateMemoryMb { get; set; }
-    
-    /// <summary>
-    /// Gets or sets the virtual memory usage in megabytes
-    /// </summary>
-    public long? VirtualMemoryMb { get; set; }
     
     /// <summary>
     /// Gets or sets the VRAM (video memory) usage in megabytes
@@ -59,4 +49,14 @@ public class ProcessSnapshot
     /// Gets or sets the number of handles held by the process
     /// </summary>
     public int? HandleCount { get; set; }
+    
+    /// <summary>
+    /// Gets or sets the timestamp when this process was first seen
+    /// </summary>
+    public DateTime FirstSeen { get; set; }
+    
+    /// <summary>
+    /// Gets or sets the timestamp when this process was last seen
+    /// </summary>
+    public DateTime LastSeen { get; set; }
 }

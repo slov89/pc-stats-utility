@@ -11,14 +11,12 @@ try
     using var mmf = MemoryMappedFile.OpenExisting(HWINFO_SHARED_MEM_NAME, MemoryMappedFileRights.Read);
     using var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
 
-    // Read header
-    byte[] headerBytes = new byte[48]; // Size of header struct
+    byte[] headerBytes = new byte[48];
     accessor.ReadArray(0, headerBytes, 0, headerBytes.Length);
     
     uint dwSignature = BitConverter.ToUInt32(headerBytes, 0);
     uint dwVersion = BitConverter.ToUInt32(headerBytes, 4);
     uint dwRevision = BitConverter.ToUInt32(headerBytes, 8);
-    // poll_time is 8 bytes at offset 12
     uint dwOffsetOfSensorSection = BitConverter.ToUInt32(headerBytes, 20);
     uint dwSizeOfSensorElement = BitConverter.ToUInt32(headerBytes, 24);
     uint dwNumSensorElements = BitConverter.ToUInt32(headerBytes, 28);

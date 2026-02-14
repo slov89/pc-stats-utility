@@ -6,6 +6,9 @@ using System.Text.Json;
 
 namespace Slov89.PCStats.Service.Services;
 
+/// <summary>
+/// Manages offline storage of snapshot data when database connectivity is unavailable
+/// </summary>
 public class OfflineStorageService : IOfflineStorageService
 {
     private readonly ILogger<OfflineStorageService> _logger;
@@ -21,24 +24,20 @@ public class OfflineStorageService : IOfflineStorageService
     {
         _logger = logger;
         
-        // Configure offline storage path
         _offlineStoragePath = configuration.GetValue<string>("OfflineStorage:Path") 
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), 
                            "Slov89.PCStats.Service", "OfflineData");
         
         _maxRetentionDays = configuration.GetValue<int>("OfflineStorage:MaxRetentionDays", 7);
         
-        // Ensure directory exists
         Directory.CreateDirectory(_offlineStoragePath);
         
-        // Configure JSON serialization
         _jsonOptions = new JsonSerializerOptions
         {
             WriteIndented = false,
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
         };
         
-        // Initialize local snapshot ID counter
         InitializeLocalSnapshotId();
     }
 

@@ -1,9 +1,9 @@
-namespace Slov89.PCStats.Models;
+namespace Slov89.PCStats.Data;
 
 /// <summary>
-/// Represents a system-wide performance snapshot
+/// Represents summary information about a system snapshot
 /// </summary>
-public class Snapshot
+public class SnapshotInfo
 {
     /// <summary>
     /// Gets or sets the unique identifier for this snapshot

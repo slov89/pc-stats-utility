@@ -5,6 +5,9 @@ using System.Diagnostics;
 
 namespace Slov89.PCStats.Service;
 
+/// <summary>
+/// Background service that periodically collects system and process statistics
+/// </summary>
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
@@ -22,6 +25,14 @@ public class Worker : BackgroundService
     private DateTime _lastCleanupTime = DateTime.MinValue;
     private int _cycleCount = 0;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Worker"/> class
+    /// </summary>
+    /// <param name="logger">The logger instance</param>
+    /// <param name="processMonitor">The process monitoring service</param>
+    /// <param name="hwinfoService">The HWiNFO temperature monitoring service</param>
+    /// <param name="databaseService">The database service</param>
+    /// <param name="configuration">The configuration</param>
     public Worker(
         ILogger<Worker> logger,
         IProcessMonitorService processMonitor,
@@ -47,7 +58,6 @@ public class Worker : BackgroundService
     {
         _logger.LogInformation("PC Stats Service is starting...");
 
-        // Initialize database connection (will handle offline mode if unavailable)
         await _databaseService.InitializeAsync();
 
         if (!_hwinfoService.IsHWiNFORunning())
@@ -76,7 +86,6 @@ public class Worker : BackgroundService
     {
         _logger.LogInformation("PC Stats Service started. Monitoring every {IntervalSeconds} seconds...", _intervalSeconds);
 
-        // Initial delay to let performance counters initialize
         await Task.Delay(1000, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -91,7 +100,6 @@ public class Worker : BackgroundService
                 _cycleCount++;
                 _logger.LogDebug("Cycle {CycleCount} completed in {ElapsedMs}ms", _cycleCount, stopwatch.ElapsedMilliseconds);
 
-                // Run database cleanup if enabled and interval has elapsed
                 if (_enableAutoCleanup)
                 {
                     var timeSinceLastCleanup = DateTime.Now - _lastCleanupTime;
@@ -101,7 +109,6 @@ public class Worker : BackgroundService
                     }
                 }
 
-                // Cleanup old process tracking every 100 cycles (approximately every 8 minutes)
                 if (_cycleCount % 100 == 0 && _processMonitor is ProcessMonitorService pms)
                 {
                     pms.CleanupOldProcessTracking();
@@ -112,7 +119,6 @@ public class Worker : BackgroundService
                 _logger.LogError(ex, "Error during stats collection cycle");
             }
 
-            // Calculate remaining delay to maintain consistent interval
             var elapsedMs = stopwatch.ElapsedMilliseconds;
             var targetIntervalMs = _intervalSeconds * 1000;
             var remainingDelayMs = Math.Max(0, targetIntervalMs - (int)elapsedMs);
@@ -131,20 +137,16 @@ public class Worker : BackgroundService
 
     private async Task CollectAndLogStatsAsync()
     {
-        // Get system-level metrics
         var systemCpuUsage = await _processMonitor.GetSystemCpuUsageAsync();
         var availableMemoryMb = (long)_availableMemoryCounter.NextValue();
         
-        // Calculate total memory usage (assuming standard Windows system)
         var totalMemoryInfo = GC.GetGCMemoryInfo();
         var totalMemoryMb = totalMemoryInfo.TotalAvailableMemoryBytes / (1024 * 1024);
         var usedMemoryMb = totalMemoryMb - availableMemoryMb;
 
-        // Get running processes
         var processes = await _processMonitor.GetRunningProcessesAsync();
         _logger.LogDebug("Found {TotalProcessCount} running processes", processes.Count);
 
-        // Filter processes by CPU usage OR private memory threshold for detailed snapshot logging
         var filteredProcesses = processes
             .Where(p => p.CpuUsage >= _minimumCpuUsagePercent || p.PrivateMemoryMb >= _minimumPrivateMemoryMb)
             .ToList();
@@ -152,14 +154,12 @@ public class Worker : BackgroundService
         _logger.LogInformation("Saving detailed metrics for {FilteredCount} of {TotalCount} processes (CPU >= {MinCpu}% OR Memory >= {MinMem}MB)",
             filteredProcesses.Count, processes.Count, _minimumCpuUsagePercent, _minimumPrivateMemoryMb);
 
-        // Batch get/create process IDs for better performance
         var processesToCreate = filteredProcesses
             .Select(p => (p.ProcessName, p.ProcessPath))
             .ToList();
 
         var processIdMap = await _databaseService.BatchGetOrCreateProcessesAsync(processesToCreate);
 
-        // Build the batch of process snapshots
         var processSnapshots = new List<(int processId, ProcessInfo processInfo)>();
         foreach (var processInfo in filteredProcesses)
         {
@@ -174,11 +174,9 @@ public class Worker : BackgroundService
             }
         }
 
-        // Get CPU temperatures
         _logger.LogDebug("Attempting to read CPU temperatures from HWiNFO...");
         var temperatures = await _hwinfoService.GetCpuTemperaturesAsync();
 
-        // Create snapshot and all related data atomically in a single transaction
         var snapshotId = await _databaseService.CreateSnapshotWithDataAsync(
             systemCpuUsage,
             usedMemoryMb,
@@ -189,7 +187,6 @@ public class Worker : BackgroundService
         _logger.LogInformation("Created snapshot {SnapshotId} - System CPU: {CpuUsage}%, Memory Used: {MemoryMb}MB",
             snapshotId, systemCpuUsage, usedMemoryMb);
 
-        // Log temperature information if available
         if (temperatures != null)
         {
             var tempReadings = new List<string>();

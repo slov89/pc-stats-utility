@@ -5,8 +5,7 @@ using Slov89.PCStats.Models;
 namespace Slov89.PCStats.Service.Services;
 
 /// <summary>
-/// Wrapper around DatabaseService that provides offline storage capabilities
-/// when database connection is unavailable
+/// Decorator for IDatabaseService that provides offline storage fallback when database is unavailable
 /// </summary>
 public class OfflineDatabaseService : IDatabaseService
 {
@@ -55,13 +54,11 @@ public class OfflineDatabaseService : IDatabaseService
         {
             var result = await _databaseService.CreateSnapshotAsync(totalCpuUsage, totalMemoryMb, availableMemoryMb);
             
-            // If we were in offline mode and this succeeds, we're back online
             if (_isOfflineMode)
             {
                 _isOfflineMode = false;
                 _logger.LogInformation("Database connection restored, switching back to online mode");
                 
-                // Start recovery process in background
                 _ = Task.Run(async () => await TryRecoverOfflineDataAsync());
             }
             
@@ -72,10 +69,8 @@ public class OfflineDatabaseService : IDatabaseService
             _logger.LogWarning(ex, "Database unavailable for snapshot creation, switching to offline mode");
             _isOfflineMode = true;
             
-            // Return a local snapshot ID for offline storage
             var localSnapshotId = _offlineStorage.GetNextLocalSnapshotId();
             
-            // Store the snapshot data for later recovery
             var snapshotData = new OfflineSnapshotData
             {
                 TotalCpuUsage = totalCpuUsage,
@@ -85,7 +80,6 @@ public class OfflineDatabaseService : IDatabaseService
                 Timestamp = DateTime.UtcNow
             };
 
-            // Create a batch for this snapshot (will be populated by other calls)
             var batch = new OfflineSnapshotBatch
             {
                 LocalSnapshotId = localSnapshotId,
@@ -102,7 +96,6 @@ public class OfflineDatabaseService : IDatabaseService
     {
         if (_isOfflineMode)
         {
-            // In offline mode, return a deterministic hash-based ID
             var processKey = $"{processName}|{processPath}";
             return Math.Abs(processKey.GetHashCode());
         }
@@ -116,7 +109,6 @@ public class OfflineDatabaseService : IDatabaseService
             _logger.LogWarning(ex, "Database unavailable for process creation, switching to offline mode");
             _isOfflineMode = true;
             
-            // Return a hash-based ID for offline storage
             var processKey = $"{processName}|{processPath}";
             return Math.Abs(processKey.GetHashCode());
         }
@@ -164,20 +156,17 @@ public class OfflineDatabaseService : IDatabaseService
 
     private async Task AppendToOfflineBatch(long localSnapshotId, int processId, ProcessInfo processInfo)
     {
-        // Try to find existing batch or create a minimal one
         var batches = await _offlineStorage.GetPendingOfflineSnapshotsAsync();
         var batch = batches.FirstOrDefault(b => b.LocalSnapshotId == localSnapshotId);
         
         if (batch == null)
         {
-            // Create a minimal batch if snapshot wasn't created offline
             batch = new OfflineSnapshotBatch
             {
                 LocalSnapshotId = localSnapshotId
             };
         }
 
-        // Add the process snapshot
         batch.ProcessSnapshots.Add(new OfflineProcessSnapshotData
         {
             LocalSnapshotId = localSnapshotId,
@@ -192,20 +181,17 @@ public class OfflineDatabaseService : IDatabaseService
 
     private async Task AppendCpuTemperatureToOfflineBatch(long localSnapshotId, CpuTemperature temperature)
     {
-        // Try to find existing batch
         var batches = await _offlineStorage.GetPendingOfflineSnapshotsAsync();
         var batch = batches.FirstOrDefault(b => b.LocalSnapshotId == localSnapshotId);
         
         if (batch == null)
         {
-            // Create a minimal batch if snapshot wasn't created offline
             batch = new OfflineSnapshotBatch
             {
                 LocalSnapshotId = localSnapshotId
             };
         }
 
-        // Add CPU temperature data
         batch.CpuTemperature = new OfflineCpuTemperatureData
         {
             LocalSnapshotId = localSnapshotId,
@@ -260,11 +246,9 @@ public class OfflineDatabaseService : IDatabaseService
                     _logger.LogError(ex, "Failed to recover offline snapshot batch {BatchId}", batch.BatchId);
                     failCount++;
                     
-                    // Increment retry count
                     batch.RetryCount++;
                     batch.ErrorMessage = ex.Message;
                     
-                    // Give up after 3 retries
                     if (batch.RetryCount >= 3)
                     {
                         _logger.LogWarning("Giving up on offline snapshot batch {BatchId} after 3 retries", batch.BatchId);
@@ -280,7 +264,6 @@ public class OfflineDatabaseService : IDatabaseService
             _logger.LogInformation("Offline data recovery completed: {SuccessCount} succeeded, {FailCount} failed", 
                 successCount, failCount);
             
-            // Clean up old files
             await _offlineStorage.CleanupOldOfflineDataAsync();
         }
         catch (Exception ex)
@@ -306,7 +289,6 @@ public class OfflineDatabaseService : IDatabaseService
 
     public async Task<int> CleanupOldSnapshotsAsync(int daysToKeep)
     {
-        // Cleanup doesn't need offline mode support - always call database directly
         return await _databaseService.CleanupOldSnapshotsAsync(daysToKeep);
     }
 
@@ -314,7 +296,6 @@ public class OfflineDatabaseService : IDatabaseService
     {
         if (_isOfflineMode)
         {
-            // In offline mode, return deterministic hash-based IDs
             var result = new Dictionary<string, int>();
             foreach (var (processName, processPath) in processes)
             {
@@ -333,7 +314,6 @@ public class OfflineDatabaseService : IDatabaseService
             _logger.LogWarning(ex, "Database unavailable for batch process creation, switching to offline mode");
             _isOfflineMode = true;
             
-            // Return hash-based IDs for offline storage
             var result = new Dictionary<string, int>();
             foreach (var (processName, processPath) in processes)
             {
@@ -348,7 +328,6 @@ public class OfflineDatabaseService : IDatabaseService
     {
         if (_isOfflineMode)
         {
-            // In offline mode, append each to the batch
             foreach (var (processId, processInfo) in processSnapshots)
             {
                 await AppendToOfflineBatch(snapshotId, processId, processInfo);
@@ -365,7 +344,6 @@ public class OfflineDatabaseService : IDatabaseService
             _logger.LogWarning(ex, "Database unavailable for batch process snapshot creation, switching to offline mode");
             _isOfflineMode = true;
             
-            // Append each to offline batch
             foreach (var (processId, processInfo) in processSnapshots)
             {
                 await AppendToOfflineBatch(snapshotId, processId, processInfo);
@@ -389,13 +367,11 @@ public class OfflineDatabaseService : IDatabaseService
                 processSnapshots,
                 cpuTemperature);
             
-            // If we were in offline mode and this succeeds, we're back online
             if (_isOfflineMode)
             {
                 _isOfflineMode = false;
                 _logger.LogInformation("Database connection restored, switching back to online mode");
                 
-                // Start recovery process in background
                 _ = Task.Run(async () => await TryRecoverOfflineDataAsync());
             }
             
@@ -406,10 +382,8 @@ public class OfflineDatabaseService : IDatabaseService
             _logger.LogWarning(ex, "Database unavailable for snapshot creation, switching to offline mode");
             _isOfflineMode = true;
             
-            // Return a local snapshot ID for offline storage
             var localSnapshotId = _offlineStorage.GetNextLocalSnapshotId();
             
-            // Store the snapshot data for later recovery
             var snapshotData = new OfflineSnapshotData
             {
                 TotalCpuUsage = totalCpuUsage,
@@ -419,14 +393,12 @@ public class OfflineDatabaseService : IDatabaseService
                 Timestamp = DateTime.UtcNow
             };
 
-            // Create a batch for this snapshot
             var batch = new OfflineSnapshotBatch
             {
                 LocalSnapshotId = localSnapshotId,
                 SnapshotData = snapshotData
             };
 
-            // Add process snapshots
             foreach (var (processId, processInfo) in processSnapshots)
             {
                 batch.ProcessSnapshots.Add(new OfflineProcessSnapshotData
@@ -439,7 +411,6 @@ public class OfflineDatabaseService : IDatabaseService
                 });
             }
 
-            // Add CPU temperature if provided
             if (cpuTemperature != null)
             {
                 batch.CpuTemperature = new OfflineCpuTemperatureData

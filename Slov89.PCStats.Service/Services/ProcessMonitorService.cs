@@ -5,6 +5,9 @@ using Slov89.PCStats.Models;
 
 namespace Slov89.PCStats.Service.Services;
 
+/// <summary>
+/// Monitors system and process-level resource usage using Windows performance counters
+/// </summary>
 public class ProcessMonitorService : IProcessMonitorService
 {
     private readonly ILogger<ProcessMonitorService> _logger;
@@ -26,7 +29,6 @@ public class ProcessMonitorService : IProcessMonitorService
     {
         try
         {
-            // Performance counters need a baseline measurement
             if (_lastCpuCheck == DateTime.MinValue)
             {
                 _cpuCounter.NextValue();
@@ -64,7 +66,6 @@ public class ProcessMonitorService : IProcessMonitorService
                 }
                 catch (Exception ex)
                 {
-                    // Some processes may not be accessible (system processes, permission issues)
                     _logger.LogTrace(ex, "Could not access process {ProcessName} (PID: {Pid})", 
                         process.ProcessName, process.Id);
                 }
@@ -86,7 +87,6 @@ public class ProcessMonitorService : IProcessMonitorService
     {
         try
         {
-            // Get basic process information
             var processInfo = new ProcessInfo
             {
                 Pid = process.Id,
@@ -95,26 +95,21 @@ public class ProcessMonitorService : IProcessMonitorService
                 HandleCount = process.HandleCount
             };
 
-            // Try to get process path
             try
             {
                 processInfo.ProcessPath = process.MainModule?.FileName;
             }
             catch
             {
-                // Some processes don't allow access to MainModule
                 processInfo.ProcessPath = null;
             }
 
-            // Get memory information (in MB)
             processInfo.MemoryUsageMb = process.WorkingSet64 / (1024 * 1024);
             processInfo.PrivateMemoryMb = process.PrivateMemorySize64 / (1024 * 1024);
-            processInfo.VirtualMemoryMb = process.PagedMemorySize64 / (1024 * 1024); // Paged memory (not virtual address space)
+            processInfo.VirtualMemoryMb = process.PagedMemorySize64 / (1024 * 1024);
 
-            // Calculate CPU usage
             processInfo.CpuUsage = CalculateProcessCpuUsage(process);
 
-            // Get VRAM usage using Performance Counters
             processInfo.VramUsageMb = GetProcessVramUsage(process.Id);
 
             return processInfo;
@@ -143,11 +138,10 @@ public class ProcessMonitorService : IProcessMonitorService
                     var cpuUsagePercent = (cpuDiff / (timeDiff * Environment.ProcessorCount)) * 100;
                     
                     _processCpuUsage[process.Id] = (now, currentTotalProcessorTime);
-                    return (decimal)Math.Min(cpuUsagePercent, 100); // Cap at 100%
+                    return (decimal)Math.Min(cpuUsagePercent, 100);
                 }
             }
 
-            // First measurement for this process
             _processCpuUsage[process.Id] = (now, currentTotalProcessorTime);
             return 0;
         }
@@ -164,8 +158,6 @@ public class ProcessMonitorService : IProcessMonitorService
 
         try
         {
-            // Use Windows Performance Counters to get GPU dedicated memory per process
-            // This is what Process Explorer uses
             var categoryName = "GPU Process Memory";
             
             if (!PerformanceCounterCategory.Exists(categoryName))
@@ -181,7 +173,6 @@ public class ProcessMonitorService : IProcessMonitorService
             {
                 try
                 {
-                    // Instance names are in format: "pid_XXXXX_luid_0x00000000_0x00013523_phys_0"
                     if (instanceName.StartsWith("pid_"))
                     {
                         var parts = instanceName.Split('_');
@@ -190,14 +181,12 @@ public class ProcessMonitorService : IProcessMonitorService
                             using var counter = new PerformanceCounter(categoryName, "Dedicated Usage", instanceName, true);
                             var bytes = counter.NextValue();
                             
-                            // Convert bytes to MB
                             return (long)(bytes / (1024 * 1024));
                         }
                     }
                 }
                 catch
                 {
-                    // Skip instances we can't read
                     continue;
                 }
             }
@@ -211,7 +200,6 @@ public class ProcessMonitorService : IProcessMonitorService
         }
     }
 
-    // Cleanup old entries from CPU usage tracking
     public void CleanupOldProcessTracking()
     {
         var currentProcessIds = new HashSet<int>(

@@ -4,6 +4,9 @@ using Slov89.PCStats.Models;
 
 namespace Slov89.PCStats.Data;
 
+/// <summary>
+/// Provides methods for querying and retrieving metrics data from the PostgreSQL database
+/// </summary>
 public class MetricsService : IMetricsService
 {
     private readonly string _connectionString;
@@ -16,9 +19,6 @@ public class MetricsService : IMetricsService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Constructor for testing that accepts connection string directly
-    /// </summary>
     public MetricsService(string connectionString, ILogger<MetricsService> logger)
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
@@ -34,7 +34,6 @@ public class MetricsService : IMetricsService
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            // Convert local time parameters to UTC for database query
             var startTimeUtc = startTime.ToUniversalTime();
             var endTimeUtc = endTime.ToUniversalTime();
 
@@ -54,7 +53,6 @@ public class MetricsService : IMetricsService
             while (await reader.ReadAsync())
             {
                 var timestamp = reader.GetDateTime(1);
-                // Convert from UTC to local time for display
                 var localTimestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime();
                 
                 snapshots.Add(new Snapshot
@@ -84,7 +82,6 @@ public class MetricsService : IMetricsService
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            // Convert local time parameters to UTC for database query
             var startTimeUtc = startTime.ToUniversalTime();
             var endTimeUtc = endTime.ToUniversalTime();
 
@@ -136,11 +133,9 @@ public class MetricsService : IMetricsService
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            // Convert local time parameters to UTC for database query
             var startTimeUtc = startTime.ToUniversalTime();
             var endTimeUtc = endTime.ToUniversalTime();
 
-            // Get top processes by average CPU usage
             const string topProcessesSql = @"
                 SELECT p.process_name, 
                        AVG(ps.cpu_usage) as avg_cpu
@@ -168,7 +163,6 @@ public class MetricsService : IMetricsService
                 }
             }
 
-            // Get time series data for each top process
             foreach (var processName in topProcessNames)
             {
                 const string metricsSql = @"
@@ -194,7 +188,6 @@ public class MetricsService : IMetricsService
                     while (await reader.ReadAsync())
                     {
                         var timestamp = reader.GetDateTime(0);
-                        // Convert from UTC to local time for display
                         var localTimestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime();
                         
                         metrics.Add((
@@ -225,7 +218,6 @@ public class MetricsService : IMetricsService
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            // Convert local time parameters to UTC for database query
             var startTimeUtc = startTime.ToUniversalTime();
             var endTimeUtc = endTime.ToUniversalTime();
 

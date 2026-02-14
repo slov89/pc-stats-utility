@@ -5,20 +5,21 @@ using Slov89.PCStats.Models;
 
 namespace Slov89.PCStats.Service.Services;
 
+/// <summary>
+/// Reads CPU temperature data from HWiNFO shared memory
+/// </summary>
 public class HWiNFOService : IHWiNFOService
 {
     private readonly ILogger<HWiNFOService> _logger;
     private const string HWINFO_SHARED_MEM_NAME = "Global\\HWiNFO_SENS_SM2";
     
-    // Known HWiNFO signatures (they can change between versions)
     private static readonly uint[] KNOWN_HWINFO_SIGNATURES = {
-        0x53695748, // Current known signature
-        0x57494E48, // Previous signature
-        0x48574E49, // Another possible signature
-        0x48574946  // "HWIF" signature
+        0x53695748,
+        0x57494E48,
+        0x48574E49,
+        0x48574946
     };
     
-    // HWiNFO Shared Memory structures
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct HWiNFO_SENSORS_SHARED_MEM2
     {
@@ -61,20 +62,17 @@ public class HWiNFOService : IHWiNFOService
     {
         try
         {
-            // First check if shared memory exists (most reliable indicator that HWiNFO is running with sensors enabled)
             try
             {
                 using var mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting(
                     HWINFO_SHARED_MEM_NAME, 
                     System.IO.MemoryMappedFiles.MemoryMappedFileRights.Read);
-                return true; // If we can open the shared memory, HWiNFO is definitely running with sensors
+                return true;
             }
             catch
             {
-                // Shared memory doesn't exist, fall back to process check
             }
 
-            // Fallback: Check for any process containing "HWiNFO" (case-insensitive)
             var allProcesses = System.Diagnostics.Process.GetProcesses();
             return allProcesses.Any(p => p.ProcessName.Contains("HWiNFO", StringComparison.OrdinalIgnoreCase) || 
                                          p.ProcessName.Contains("hwinfo", StringComparison.OrdinalIgnoreCase));
@@ -97,7 +95,6 @@ public class HWiNFOService : IHWiNFOService
             
             _logger.LogInformation("HWiNFO process detected, attempting to read temperature data...");
 
-            // Try to read from HWiNFO shared memory
             var temperatures = ReadFromHWiNFOSharedMemory();
             if (temperatures != null)
             {
@@ -107,7 +104,6 @@ public class HWiNFOService : IHWiNFOService
 
             _logger.LogWarning("Failed to read from shared memory, trying registry fallback...");
 
-            // Fallback: Try reading from Registry (older HWiNFO versions)
             temperatures = ReadFromHWiNFORegistry();
             if (temperatures != null)
             {
@@ -140,11 +136,9 @@ public class HWiNFOService : IHWiNFOService
             using var accessor = mmf.CreateViewAccessor(0, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read);
             _logger.LogInformation("Successfully opened HWiNFO shared memory, reading header...");
 
-            // Read header
             HWiNFO_SENSORS_SHARED_MEM2 header;
             accessor.Read(0, out header);
 
-            // Log signature info (for debugging/tracking HWiNFO version changes)
             if (!KNOWN_HWINFO_SIGNATURES.Contains(header.dwSignature))
             {
                 _logger.LogWarning("Detected new/unknown HWiNFO shared memory signature: 0x{ActualSignature:X8}. Known signatures: {KnownSignatures}", 
@@ -155,33 +149,25 @@ public class HWiNFOService : IHWiNFOService
             _logger.LogInformation("HWiNFO shared memory opened successfully with signature 0x{Signature:X8}. Reading {Count} sensors...", 
                 header.dwSignature, header.dwNumReadingElements);
 
-            // Read temperature readings
             int tempSensorsFound = 0;
             for (uint i = 0; i < header.dwNumReadingElements; i++)
             {
                 long offset = header.dwOffsetOfReadingSection + (i * header.dwSizeOfReadingElement);
                 
-                // Read bytes manually instead of using struct marshaling (more reliable)
                 byte[] sensorBytes = new byte[header.dwSizeOfReadingElement];
                 accessor.ReadArray(offset, sensorBytes, 0, (int)header.dwSizeOfReadingElement);
                 
-                // Extract label (offset 12, size 128)
                 byte[] labelBytes = new byte[128];
                 Array.Copy(sensorBytes, 12, labelBytes, 0, 128);
                 
-                // Extract unit (offset 268, size 16)
                 byte[] unitBytes = new byte[16];
                 Array.Copy(sensorBytes, 268, unitBytes, 0, 16);
                 
-                // Extract value (offset 284, 8 bytes double)
                 double value = BitConverter.ToDouble(sensorBytes, 284);
                 
                 var label = System.Text.Encoding.ASCII.GetString(labelBytes).TrimEnd('\0');
                 var unit = System.Text.Encoding.ASCII.GetString(unitBytes).TrimEnd('\0');
 
-                // Map specific sensors to the appropriate property
-                // Note: In HWiNFO 8.14+, the degree symbol may be encoded as '?' so check for both "°C" and "?C"
-                // Exclude units like "Clock", "MHz", etc. that might contain 'C'
                 bool isTemperatureSensor = (unit.Contains("°C") || unit.Contains("?C")) && 
                                           !unit.Contains("Clock") && 
                                           !unit.Contains("MHz");
@@ -217,7 +203,6 @@ public class HWiNFOService : IHWiNFOService
                     }
                     else
                     {
-                        // Log other temperature sensors we're ignoring
                         _logger.LogTrace("Ignoring temperature sensor: {Label} = {Temp}°C", label, temp);
                     }
                 }
@@ -267,7 +252,6 @@ public class HWiNFOService : IHWiNFOService
 
         try
         {
-            // HWiNFO can write sensor data to registry
             using var key = Registry.CurrentUser.OpenSubKey(@"Software\HWiNFO64\VSB");
             if (key == null)
             {

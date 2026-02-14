@@ -2,49 +2,73 @@ using Slov89.PCStats.Models;
 
 namespace Slov89.PCStats.Data;
 
+/// <summary>
+/// Provides methods for querying system metrics and performance data from the database
+/// </summary>
 public interface IMetricsService
 {
+    /// <summary>
+    /// Gets all system snapshots within the specified time range
+    /// </summary>
+    /// <param name="startTime">The start of the time range</param>
+    /// <param name="endTime">The end of the time range</param>
+    /// <returns>A list of snapshots ordered by timestamp</returns>
     Task<List<Snapshot>> GetSnapshotsAsync(DateTime startTime, DateTime endTime);
+    
+    /// <summary>
+    /// Gets all CPU temperature readings within the specified time range
+    /// </summary>
+    /// <param name="startTime">The start of the time range</param>
+    /// <param name="endTime">The end of the time range</param>
+    /// <returns>A list of CPU temperature readings ordered by timestamp</returns>
     Task<List<CpuTemperature>> GetCpuTemperaturesAsync(DateTime startTime, DateTime endTime);
+    
+    /// <summary>
+    /// Gets the top processes by resource usage within the specified time range
+    /// </summary>
+    /// <param name="startTime">The start of the time range</param>
+    /// <param name="endTime">The end of the time range</param>
+    /// <param name="topCount">The number of top processes to return (default is 5)</param>
+    /// <returns>A dictionary mapping process names to their time-series metrics</returns>
     Task<Dictionary<string, List<(DateTime timestamp, decimal cpuUsage, long memoryMb)>>> GetTopProcessesAsync(DateTime startTime, DateTime endTime, int topCount = 5);
+    
+    /// <summary>
+    /// Gets process snapshots grouped by snapshot ID within the specified time range
+    /// </summary>
+    /// <param name="startTime">The start of the time range</param>
+    /// <param name="endTime">The end of the time range</param>
+    /// <returns>A dictionary mapping snapshot IDs to lists of process snapshots</returns>
     Task<Dictionary<long, List<ProcessSnapshotWithName>>> GetProcessSnapshotsAsync(DateTime startTime, DateTime endTime);
+    
+    /// <summary>
+    /// Gets the latest process snapshots from the most recent system snapshot
+    /// </summary>
+    /// <returns>A list of detailed process snapshots</returns>
     Task<List<ProcessSnapshotDetail>> GetLatestProcessSnapshotsAsync();
+    
+    /// <summary>
+    /// Gets summary information for all snapshots in the database
+    /// </summary>
+    /// <returns>A list of snapshot information records</returns>
     Task<List<SnapshotInfo>> GetAllSnapshotInfosAsync();
+    
+    /// <summary>
+    /// Gets summary information for the most recent snapshot
+    /// </summary>
+    /// <returns>The latest snapshot information, or null if no snapshots exist</returns>
     Task<SnapshotInfo?> GetLatestSnapshotInfoAsync();
+    
+    /// <summary>
+    /// Gets summary information for a specific snapshot
+    /// </summary>
+    /// <param name="snapshotId">The ID of the snapshot to retrieve</param>
+    /// <returns>The snapshot information, or null if not found</returns>
     Task<SnapshotInfo?> GetSnapshotInfoAsync(long snapshotId);
+    
+    /// <summary>
+    /// Gets all process snapshots associated with a specific system snapshot
+    /// </summary>
+    /// <param name="snapshotId">The ID of the system snapshot</param>
+    /// <returns>A list of detailed process snapshots</returns>
     Task<List<ProcessSnapshotDetail>> GetProcessSnapshotsByIdAsync(long snapshotId);
-}
-
-public class ProcessSnapshotWithName
-{
-    public long SnapshotId { get; set; }
-    public string ProcessName { get; set; } = string.Empty;
-    public long? PrivateMemoryMb { get; set; }
-    public long? MemoryUsageMb { get; set; }
-    public decimal? CpuUsage { get; set; }
-    public int ProcessCount { get; set; }
-}
-
-public class ProcessSnapshotDetail
-{
-    public long ProcessSnapshotId { get; set; }
-    public int Pid { get; set; }
-    public string ProcessName { get; set; } = string.Empty;
-    public string? ProcessPath { get; set; }
-    public decimal? CpuUsage { get; set; }
-    public long? PrivateMemoryMb { get; set; }
-    public long? VramUsageMb { get; set; }
-    public int? ThreadCount { get; set; }
-    public int? HandleCount { get; set; }
-    public DateTime FirstSeen { get; set; }
-    public DateTime LastSeen { get; set; }
-}
-
-public class SnapshotInfo
-{
-    public long SnapshotId { get; set; }
-    public DateTime SnapshotTimestamp { get; set; }
-    public decimal? TotalCpuUsage { get; set; }
-    public long? TotalMemoryUsageMb { get; set; }
-    public long? TotalAvailableMemoryMb { get; set; }
 }
