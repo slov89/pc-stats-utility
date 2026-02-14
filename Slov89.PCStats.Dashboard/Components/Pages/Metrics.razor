@@ -3,8 +3,10 @@
 @using Slov89.PCStats.Data
 @using Slov89.PCStats.Models
 @using ApexCharts
+@using Microsoft.JSInterop
 @inject IMetricsService MetricsService
-@implements IDisposable
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Dashboard</PageTitle>
@@ -196,6 +198,7 @@ else
     private List<TempReading> tempReadings = new();
     private List<CpuMetric> cpuMetrics = new();
     private List<CpuTempMetric> cpuTempMetrics = new();
+    private Dictionary<long, List<Slov89.PCStats.Data.ProcessSnapshotWithName>> processSnapshots = new();
     private int selectedMinutes = 10;
     private bool isLoading = true;
     private bool hasError = false;
@@ -204,6 +207,7 @@ else
     private int secondsUntilRefresh = 5;
     private const int RefreshIntervalSeconds = 5;
     private bool autoRefreshEnabled = true;
+    private IJSObjectReference? jsModule;
     
     private ApexChart<CpuTempMetric>? combinedCpuChart;
     private ApexChart<Snapshot>? memoryChart;
@@ -308,7 +312,8 @@ else
         { 
             Theme = Mode.Light,
             Style = new TooltipStyle { FontSize = "12px" },
-            X = new TooltipX { Format = "dd MMM HH:mm:ss" }
+            X = new TooltipX { Format = "dd MMM HH:mm:ss" },
+            Custom = "memoryTooltipFormatter"
         }
     };
 
@@ -344,6 +349,14 @@ else
     {
         await LoadData();
         StartAutoRefreshTimer();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/Metrics.razor.js");
+        }
     }
 
     private void StartAutoRefreshTimer()
@@ -419,9 +432,14 @@ else
         }
     }
     
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         refreshTimer?.Dispose();
+        
+        if (jsModule != null)
+        {
+            await jsModule.DisposeAsync();
+        }
     }
 
     private async Task LoadData()
@@ -445,6 +463,7 @@ else
 
             snapshots = await MetricsService.GetSnapshotsAsync(startTime, endTime);
             temperatures = await MetricsService.GetCpuTemperaturesAsync(startTime, endTime);
+            processSnapshots = await MetricsService.GetProcessSnapshotsAsync(startTime, endTime);
 
             // Create a hashset of snapshot IDs that have temperature data for faster lookup
             var snapshotsWithTemp = new HashSet<long>(temperatures.Select(t => t.SnapshotId));
@@ -499,6 +518,48 @@ else
             
             // Update charts after data loads (will trigger StateHasChanged internally)
             await UpdateChartsAsync();
+            
+            // Update process snapshot data in JavaScript for tooltip
+            await UpdateProcessSnapshotDataInJs();
+        }
+    }
+
+    private async Task UpdateProcessSnapshotDataInJs()
+    {
+        if (jsModule == null || !snapshots.Any())
+            return;
+
+        try
+        {
+            // Create a dictionary mapping data point index to top 5 processes
+            var tooltipData = new Dictionary<int, List<object>>();
+            
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                var snapshot = snapshots[i];
+                if (processSnapshots.TryGetValue(snapshot.SnapshotId, out var processes))
+                {
+                    // Get top 5 processes by private memory
+                    var topProcesses = processes
+                        .Where(p => p.PrivateMemoryMb.HasValue)
+                        .OrderByDescending(p => p.PrivateMemoryMb)
+                        .Take(5)
+                        .Select(p => new
+                        {
+                            processName = p.ProcessName,
+                            privateMemoryMb = p.PrivateMemoryMb
+                        })
+                        .ToList<object>();
+                    
+                    tooltipData[i] = topProcesses;
+                }
+            }
+            
+            await jsModule.InvokeVoidAsync("updateProcessSnapshotData", tooltipData);
+        }
+        catch
+        {
+            // Don't propagate this error - it's not critical for chart functionality
         }
     }
 

@@ -215,4 +215,60 @@ public class MetricsService : IMetricsService
 
         return processMetrics;
     }
+
+    public async Task<Dictionary<long, List<ProcessSnapshotWithName>>> GetProcessSnapshotsAsync(DateTime startTime, DateTime endTime)
+    {
+        var result = new Dictionary<long, List<ProcessSnapshotWithName>>();
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            // Convert local time parameters to UTC for database query
+            var startTimeUtc = startTime.ToUniversalTime();
+            var endTimeUtc = endTime.ToUniversalTime();
+
+            const string sql = @"
+                SELECT ps.snapshot_id, p.process_name, ps.private_memory_mb, 
+                       ps.memory_usage_mb, ps.cpu_usage
+                FROM process_snapshots ps
+                INNER JOIN processes p ON ps.process_id = p.process_id
+                INNER JOIN snapshots s ON ps.snapshot_id = s.snapshot_id
+                WHERE s.snapshot_timestamp >= @startTime 
+                  AND s.snapshot_timestamp <= @endTime
+                ORDER BY ps.snapshot_id, ps.private_memory_mb DESC NULLS LAST";
+
+            await using var command = new NpgsqlCommand(sql, connection);
+            command.Parameters.AddWithValue("startTime", startTimeUtc);
+            command.Parameters.AddWithValue("endTime", endTimeUtc);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var snapshotId = reader.GetInt64(0);
+                var processSnapshot = new ProcessSnapshotWithName
+                {
+                    SnapshotId = snapshotId,
+                    ProcessName = reader.GetString(1),
+                    PrivateMemoryMb = reader.IsDBNull(2) ? null : reader.GetInt64(2),
+                    MemoryUsageMb = reader.IsDBNull(3) ? null : reader.GetInt64(3),
+                    CpuUsage = reader.IsDBNull(4) ? null : reader.GetDecimal(4)
+                };
+
+                if (!result.ContainsKey(snapshotId))
+                {
+                    result[snapshotId] = new List<ProcessSnapshotWithName>();
+                }
+
+                result[snapshotId].Add(processSnapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching process snapshots from {StartTime} to {EndTime}", startTime, endTime);
+        }
+
+        return result;
+    }
 }
