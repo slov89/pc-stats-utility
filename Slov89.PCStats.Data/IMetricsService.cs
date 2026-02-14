@@ -17,4 +17,5 @@ public class ProcessSnapshotWithName
     public long? PrivateMemoryMb { get; set; }
     public long? MemoryUsageMb { get; set; }
     public decimal? CpuUsage { get; set; }
+    public int ProcessCount { get; set; }
 }

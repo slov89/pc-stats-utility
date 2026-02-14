@@ -52,8 +52,9 @@ window.memoryTooltipFormatter = function({ series, seriesIndex, dataPointIndex, 
             const memValue = proc.privateMemoryMb !== null && proc.privateMemoryMb !== undefined 
                 ? proc.privateMemoryMb.toLocaleString() 
                 : 'N/A';
+            const processCount = proc.processCount > 1 ? ` (${proc.processCount})` : '';
             html += `<div style="font-size: 11px; margin-bottom: 2px;">`;
-            html += `<span style="color: #333;">${proc.processName}:</span> `;
+            html += `<span style="color: #333;">${proc.processName}${processCount}:</span> `;
             html += `<span style="color: #00E396; font-weight: 500;">${memValue} MB</span>`;
             html += `</div>`;
         }

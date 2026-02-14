@@ -230,14 +230,19 @@ public class MetricsService : IMetricsService
             var endTimeUtc = endTime.ToUniversalTime();
 
             const string sql = @"
-                SELECT ps.snapshot_id, p.process_name, ps.private_memory_mb, 
-                       ps.memory_usage_mb, ps.cpu_usage
+                SELECT ps.snapshot_id, 
+                       p.process_name, 
+                       SUM(ps.private_memory_mb) as private_memory_mb,
+                       SUM(ps.memory_usage_mb) as memory_usage_mb,
+                       SUM(ps.cpu_usage) as cpu_usage,
+                       COUNT(*) as process_count
                 FROM process_snapshots ps
                 INNER JOIN processes p ON ps.process_id = p.process_id
                 INNER JOIN snapshots s ON ps.snapshot_id = s.snapshot_id
                 WHERE s.snapshot_timestamp >= @startTime 
                   AND s.snapshot_timestamp <= @endTime
-                ORDER BY ps.snapshot_id, ps.private_memory_mb DESC NULLS LAST";
+                GROUP BY ps.snapshot_id, p.process_name
+                ORDER BY ps.snapshot_id, SUM(ps.private_memory_mb) DESC NULLS LAST";
 
             await using var command = new NpgsqlCommand(sql, connection);
             command.Parameters.AddWithValue("startTime", startTimeUtc);
@@ -253,7 +258,8 @@ public class MetricsService : IMetricsService
                     ProcessName = reader.GetString(1),
                     PrivateMemoryMb = reader.IsDBNull(2) ? null : reader.GetInt64(2),
                     MemoryUsageMb = reader.IsDBNull(3) ? null : reader.GetInt64(3),
-                    CpuUsage = reader.IsDBNull(4) ? null : reader.GetDecimal(4)
+                    CpuUsage = reader.IsDBNull(4) ? null : reader.GetDecimal(4),
+                    ProcessCount = reader.GetInt32(5)
                 };
 
                 if (!result.ContainsKey(snapshotId))

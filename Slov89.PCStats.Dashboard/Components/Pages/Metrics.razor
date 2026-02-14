@@ -547,7 +547,8 @@ else
                         .Select(p => new
                         {
                             processName = p.ProcessName,
-                            privateMemoryMb = p.PrivateMemoryMb
+                            privateMemoryMb = p.PrivateMemoryMb,
+                            processCount = p.ProcessCount
                         })
                         .ToList<object>();
                     
