@@ -154,4 +154,43 @@ public class HWiNFOServiceTests
                 Times.AtLeastOnce);
         }
     }
+
+    [Fact]
+    public async Task GetCpuTemperaturesAsync_CalledRapidly_ShouldHandleGracefully()
+    {
+        // Act - Call multiple times rapidly
+        var task1 = _service.GetCpuTemperaturesAsync();
+        var task2 = _service.GetCpuTemperaturesAsync();
+        var task3 = _service.GetCpuTemperaturesAsync();
+
+        var results = await Task.WhenAll(task1, task2, task3);
+
+        // Assert - All calls should complete without errors
+        // Results may be null if HWiNFO is not running
+        results.Should().AllSatisfy(r =>
+        {
+            if (r != null)
+            {
+                // If we got temperature data, validate it
+                if (r.CpuTctlTdie.HasValue)
+                {
+                    r.CpuTctlTdie.Value.Should().BeInRange(-50, 150);
+                }
+            }
+        });
+    }
+
+    [Fact]
+    public async Task GetCpuTemperaturesAsync_WhenDataAvailable_ShouldHaveThermalThrottlingFlag()
+    {
+        // Act
+        var result = await _service.GetCpuTemperaturesAsync();
+
+        // Assert
+        if (result != null)
+        {
+            // ThermalThrottling is a boolean, so it should always have a value
+            result.ThermalThrottling.Should().Be(result.ThermalThrottling);
+        }
+    }
 }

@@ -18,10 +18,10 @@ public class ProcessMonitorServiceTests
         
         // Create real configuration instead of mocking
         var configBuilder = new ConfigurationBuilder();
-        configBuilder.AddInMemoryCollection(new Dictionary<string, string>
+        configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
         {
             { "MonitoringSettings:EnableVRAMMonitoring", "false" }
-        });
+        }!);
         _configuration = configBuilder.Build();
         
         _service = new ProcessMonitorService(_mockLogger.Object, _configuration);
@@ -191,5 +191,77 @@ public class ProcessMonitorServiceTests
             .Where(p => p.MemoryUsageMb < 100_000 && p.PrivateMemoryMb < 100_000)
             .ToList();
         processesWithReasonableMemory.Should().HaveCountGreaterThan(0, "most processes should have reasonable memory usage");
+    }
+
+    [Fact]
+    public async Task GetSystemCpuUsageAsync_MultipleCallsRapidly_ShouldHandleGracefully()
+    {
+        // Act - Call multiple times rapidly
+        var task1 = _service.GetSystemCpuUsageAsync();
+        var task2 = _service.GetSystemCpuUsageAsync();
+        var task3 = _service.GetSystemCpuUsageAsync();
+
+        var results = await Task.WhenAll(task1, task2, task3);
+
+        // Assert
+        results.Should().AllSatisfy(r =>
+        {
+            r.Should().BeGreaterThanOrEqualTo(0);
+            r.Should().BeLessThanOrEqualTo(100);
+        });
+    }
+
+    [Fact]
+    public async Task GetRunningProcessesAsync_ShouldHandleProcessesThatExitDuringEnumeration()
+    {
+        // Act - This test verifies the service handles processes that might exit
+        // during enumeration without throwing exceptions
+        var result = await _service.Invoking(s => s.GetRunningProcessesAsync())
+            .Should().NotThrowAsync();
+
+        // Assert
+        result.Subject.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CleanupOldProcessTracking_CalledMultipleTimes_ShouldNotThrow()
+    {
+        // Arrange
+        await _service.GetRunningProcessesAsync();
+        await Task.Delay(100);
+        await _service.GetRunningProcessesAsync();
+
+        // Act & Assert
+        _service.Invoking(s => s.CleanupOldProcessTracking()).Should().NotThrow();
+        _service.Invoking(s => s.CleanupOldProcessTracking()).Should().NotThrow();
+        _service.Invoking(s => s.CleanupOldProcessTracking()).Should().NotThrow();
+    }
+
+    [Fact]
+    public async Task GetRunningProcessesAsync_ProcessNames_ShouldNotBeEmpty()
+    {
+        // Act
+        var processes = await _service.GetRunningProcessesAsync();
+
+        // Assert
+        processes.Should().NotBeEmpty();
+        processes.Should().AllSatisfy(p =>
+        {
+            p.ProcessName.Should().NotBeNullOrWhiteSpace("all processes should have a name");
+        });
+    }
+
+    [Fact]
+    public async Task GetRunningProcessesAsync_ProcessIds_ShouldBeNonNegative()
+    {
+        // Act
+        var processes = await _service.GetRunningProcessesAsync();
+
+        // Assert
+        processes.Should().NotBeEmpty();
+        processes.Should().AllSatisfy(p =>
+        {
+            p.Pid.Should().BeGreaterThanOrEqualTo(0, "process IDs should be non-negative");
+        });
     }
 }

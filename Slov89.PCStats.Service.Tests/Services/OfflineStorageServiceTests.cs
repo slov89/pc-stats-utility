@@ -262,6 +262,84 @@ public class OfflineStorageServiceTests : IDisposable
         recovered[0].CpuTemperature!.Temperature.CpuTctlTdie.Should().Be(65.5m);
     }
 
+    [Fact]
+    public async Task SaveOfflineSnapshotAsync_WithMultipleBatches_ShouldMaintainOrder()
+    {
+        // Arrange
+        var batch1 = CreateTestBatch(1);
+        var batch2 = CreateTestBatch(2);
+        var batch3 = CreateTestBatch(3);
+
+        // Act
+        await _service.SaveOfflineSnapshotAsync(batch1);
+        await Task.Delay(10);
+        await _service.SaveOfflineSnapshotAsync(batch2);
+        await Task.Delay(10);
+        await _service.SaveOfflineSnapshotAsync(batch3);
+
+        var recovered = await _service.GetPendingOfflineSnapshotsAsync();
+
+        // Assert
+        recovered.Should().HaveCount(3);
+        recovered[0].LocalSnapshotId.Should().Be(1);
+        recovered[1].LocalSnapshotId.Should().Be(2);
+        recovered[2].LocalSnapshotId.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task RemoveOfflineSnapshotAsync_WithNonExistentFile_ShouldNotThrow()
+    {
+        // Act & Assert
+        await _service.Invoking(s => s.RemoveOfflineSnapshotAsync(Guid.NewGuid()))
+            .Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task GetPendingOfflineSnapshotsAsync_WithEmptyDirectory_ShouldReturnEmptyList()
+    {
+        // Act
+        var result = await _service.GetPendingOfflineSnapshotsAsync();
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SaveOfflineSnapshotAsync_WithNullProcessPath_ShouldHandleGracefully()
+    {
+        // Arrange
+        var batch = new OfflineSnapshotBatch
+        {
+            LocalSnapshotId = 1,
+            SnapshotData = new OfflineSnapshotData { LocalSnapshotId = 1 },
+            ProcessSnapshots = new List<OfflineProcessSnapshotData>
+            {
+                new OfflineProcessSnapshotData
+                {
+                    LocalSnapshotId = 1,
+                    LocalProcessId = 1,
+                    ProcessName = "System",
+                    ProcessPath = null,
+                    ProcessInfo = new ProcessInfo
+                    {
+                        ProcessName = "System",
+                        ProcessPath = null,
+                        Pid = 0
+                    }
+                }
+            }
+        };
+
+        // Act
+        await _service.SaveOfflineSnapshotAsync(batch);
+        var recovered = await _service.GetPendingOfflineSnapshotsAsync();
+
+        // Assert
+        recovered.Should().HaveCount(1);
+        recovered[0].ProcessSnapshots.Should().HaveCount(1);
+        recovered[0].ProcessSnapshots[0].ProcessPath.Should().BeNull();
+    }
+
     private OfflineSnapshotBatch CreateTestBatch(long snapshotId)
     {
         return new OfflineSnapshotBatch
