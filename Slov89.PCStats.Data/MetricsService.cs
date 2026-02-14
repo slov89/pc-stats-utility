@@ -277,4 +277,55 @@ public class MetricsService : IMetricsService
 
         return result;
     }
+
+    public async Task<List<ProcessSnapshotDetail>> GetLatestProcessSnapshotsAsync()
+    {
+        var processDetails = new List<ProcessSnapshotDetail>();
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            const string sql = @"
+                SELECT ps.process_snapshot_id, ps.pid, p.process_name, p.process_path,
+                       ps.cpu_usage, ps.private_memory_mb, ps.vram_usage_mb,
+                       ps.thread_count, ps.handle_count, p.first_seen, p.last_seen
+                FROM process_snapshots ps
+                INNER JOIN processes p ON ps.process_id = p.process_id
+                INNER JOIN snapshots s ON ps.snapshot_id = s.snapshot_id
+                WHERE s.snapshot_id = (SELECT MAX(snapshot_id) FROM snapshots)
+                ORDER BY p.process_name, ps.pid";
+
+            await using var command = new NpgsqlCommand(sql, connection);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var firstSeen = reader.GetDateTime(9);
+                var lastSeen = reader.GetDateTime(10);
+                
+                processDetails.Add(new ProcessSnapshotDetail
+                {
+                    ProcessSnapshotId = reader.GetInt64(0),
+                    Pid = reader.GetInt32(1),
+                    ProcessName = reader.GetString(2),
+                    ProcessPath = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    CpuUsage = reader.IsDBNull(4) ? null : reader.GetDecimal(4),
+                    PrivateMemoryMb = reader.IsDBNull(5) ? null : reader.GetInt64(5),
+                    VramUsageMb = reader.IsDBNull(6) ? null : reader.GetInt64(6),
+                    ThreadCount = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    HandleCount = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+                    FirstSeen = DateTime.SpecifyKind(firstSeen, DateTimeKind.Utc).ToLocalTime(),
+                    LastSeen = DateTime.SpecifyKind(lastSeen, DateTimeKind.Utc).ToLocalTime()
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching latest process snapshots");
+        }
+
+        return processDetails;
+    }
 }
