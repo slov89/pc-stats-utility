@@ -153,6 +153,14 @@ Import the namespace:
 using Slov89.PCStats.Models;
 ```
 
+## Related Documentation
+
+- **[Main README](../README.md)** - Solution overview and quick start
+- **[Data Layer Documentation](../Slov89.PCStats.Data/README.md)** - Database operations using these models
+- **[Service Documentation](../Slov89.PCStats.Service/README.md)** - Data collection using these models
+- **[Dashboard Documentation](../Slov89.PCStats.Dashboard/README.md)** - Visualization using these models
+- **[Database Schema](../Database/README.md)** - Database table definitions
+
 ## Dependencies
 
 None - this is a plain class library with no external dependencies.

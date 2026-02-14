@@ -149,6 +149,61 @@ Both services throw exceptions on database errors:
 
 All exceptions are logged via `ILogger`.
 
+## Testing
+
+This project has comprehensive test coverage in **Slov89.PCStats.Data.Tests**.
+
+### Integration Tests
+
+**DatabaseServiceIntegrationTests:**
+- Tests all write operations (snapshots, processes, temperatures)
+- Validates transactional integrity
+- Tests offline data restoration
+- Verifies foreign key relationships
+
+**MetricsServiceIntegrationTests:**
+- Tests time-range queries for snapshots and temperatures
+- Validates top processes query with aggregations
+- Tests query performance and accuracy
+
+**Setup:**
+- Uses shared PostgreSQL test fixture
+- Creates temporary test database for each test run
+- Cleans up after tests complete
+
+### Model Tests
+
+**OfflineDataModelsTests:**
+- Validates offline storage data structures
+- Tests serialization/deserialization
+- Ensures data integrity during offline mode
+
+### Running Tests
+
+```powershell
+# Run all data layer tests
+dotnet test Slov89.PCStats.Data.Tests
+
+# Run only integration tests
+dotnet test Slov89.PCStats.Data.Tests --filter Category=Integration
+
+# Run with detailed output
+dotnet test Slov89.PCStats.Data.Tests --logger "console;verbosity=detailed"
+```
+
+**Requirements:**
+- PostgreSQL 12+ must be running
+- Connection string configured via environment variable or test settings
+- Write permissions to create/drop test databases
+
+## Related Documentation
+
+- **[Main README](../README.md)** - Solution overview and setup guide
+- **[Models Documentation](../Slov89.PCStats.Models/README.md)** - Data models used by this layer
+- **[Database Schema](../Database/README.md)** - PostgreSQL schema and queries
+- **[Service Documentation](../Slov89.PCStats.Service/README.md)** - Uses DatabaseService for writes
+- **[Dashboard Documentation](../Slov89.PCStats.Dashboard/README.md)** - Uses MetricsService for reads
+
 ## Target Framework
 
 - .NET 10.0

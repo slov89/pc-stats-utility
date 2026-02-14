@@ -397,6 +397,13 @@ pg_dump -U postgres -d pcstats -F c -f pcstats_backup_$(date +%Y%m%d).dump
 pg_restore -U postgres -d pcstats -c pcstats_backup_20260212.dump
 ```
 
+## Related Documentation
+
+- **[Main README](../README.md)** - Solution overview and quick start guide
+- **[Data Layer Documentation](../Slov89.PCStats.Data/README.md)** - Database operations API\n- **[Service Documentation](../Slov89.PCStats.Service/README.md)** - Service that writes to database
+- **[Dashboard Documentation](../Slov89.PCStats.Dashboard/README.md)** - Querying and visualizing data
+- **[Models Documentation](../Slov89.PCStats.Models/README.md)** - Data model definitions
+
 ## Troubleshooting
 
 ### Connection Issues

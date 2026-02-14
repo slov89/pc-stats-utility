@@ -11,6 +11,11 @@ This solution consists of four main components:
 3. **[Slov89.PCStats.Service](Slov89.PCStats.Service/)** - Windows service that collects metrics
 4. **[Slov89.PCStats.Dashboard](Slov89.PCStats.Dashboard/)** - Blazor Server web dashboard
 
+And two test projects:
+
+- **Slov89.PCStats.Data.Tests** - Integration and unit tests for data layer
+- **Slov89.PCStats.Service.Tests** - Unit tests for service components
+
 Data is stored in PostgreSQL with an efficient normalized schema, indexed for fast querying.
 
 ## Key Features
@@ -111,6 +116,15 @@ slov89-pc-stats-utility/
 ├── Slov89.PCStats.Dashboard/         # Web dashboard
 │   └── README.md                      📖 Dashboard documentation
 │
+├── Slov89.PCStats.Data.Tests/        # Data layer tests
+│   ├── Integration/                   # Integration tests
+│   └── Models/                        # Model tests
+│
+├── Slov89.PCStats.Service.Tests/     # Service tests
+│   └── Services/                      # Service component tests
+│
+├── HWiNFODiagnostics/                # Diagnostic utility for HWiNFO
+│
 ├── Set-ConnectionString.ps1          # Connection string helper
 └── README.md                          # This file
 ```
@@ -124,6 +138,7 @@ slov89-pc-stats-utility/
 - **[Service Documentation](Slov89.PCStats.Service/README.md)** - Installation, configuration, troubleshooting
 - **[Dashboard Documentation](Slov89.PCStats.Dashboard/README.md)** - Running, deploying, customizing
 - **[Database Documentation](Database/README.md)** - Schema, views, functions, queries
+- **[HWiNFO Diagnostics](HWiNFODiagnostics/README.md)** - Temperature sensor troubleshooting utility
 
 ### What Each Component Does
 
@@ -201,6 +216,20 @@ dotnet build
 ### Run Tests
 
 ```powershell
+# Run all tests
+dotnet test
+
+# Run specific test project
+dotnet test Slov89.PCStats.Data.Tests
+dotnet test Slov89.PCStats.Service.Tests
+
+# Run with detailed output
+dotnet test --logger "console;verbosity=detailed"
+```
+
+### Run in Development Mode
+
+```powershell
 # Run service in console mode
 cd Slov89.PCStats.Service
 dotnet run
@@ -254,6 +283,30 @@ SELECT * FROM v_latest_cpu_temps;
 
 More queries in [Database/README.md](Database/README.md).
 
+## Utilities
+
+### HWiNFODiagnostics
+
+A diagnostic tool to verify HWiNFO shared memory access and discover available CPU temperature sensors.
+
+**Usage:**
+```powershell
+cd HWiNFODiagnostics
+dotnet run
+```
+
+**Purpose:**
+- Verify HWiNFO shared memory is accessible
+- List all available temperature sensors
+- Identify sensor names for CPU temperature monitoring
+- Troubleshoot HWiNFO integration issues
+
+**Requirements:**
+- HWiNFO v8.14 must be running
+- Shared Memory Support enabled in HWiNFO settings
+
+See [HWiNFODiagnostics/README.md](HWiNFODiagnostics/README.md) for detailed documentation.
+
 ## Troubleshooting
 
 ### Service Issues
@@ -265,10 +318,56 @@ See [Slov89.PCStats.Dashboard/README.md](Slov89.PCStats.Dashboard/README.md#trou
 ### Database Issues
 See [Database/README.md](Database/README.md)
 
+### HWiNFO Temperature Issues
+See [HWiNFODiagnostics/README.md](HWiNFODiagnostics/README.md) - Use the diagnostic tool to verify sensor access
+
 ### General Checks
 - Verify environment variable: `[Environment]::GetEnvironmentVariable('slov89_pc_stats_utility_pg', 'Machine')`
 - Check PostgreSQL running: `Get-Service postgresql*`
 - Test database connection: `psql -U postgres -d pcstats`
+
+## Testing
+
+The solution includes comprehensive test coverage:
+
+### Data Layer Tests (Slov89.PCStats.Data.Tests)
+
+**Integration Tests:**
+- `DatabaseServiceIntegrationTests` - Tests write operations against PostgreSQL
+- `MetricsServiceIntegrationTests` - Tests read operations and query performance
+- Uses shared PostgreSQL fixture for test database management
+
+**Model Tests:**
+- `OfflineDataModelsTests` - Validates offline storage data structures
+
+### Service Tests (Slov89.PCStats.Service.Tests)
+
+**Service Component Tests:**
+- `ProcessMonitorServiceTests` - Tests process enumeration and metrics collection
+- `HWiNFOServiceTests` - Tests HWiNFO integration and temperature reading
+- `OfflineStorageServiceTests` - Tests offline JSON storage and retrieval
+- `OfflineDatabaseServiceTests` - Tests offline mode switching and recovery
+
+**Running Tests:**
+
+```powershell
+# Run all tests
+dotnet test
+
+# Run with code coverage
+dotnet test --collect:"XPlat Code Coverage"
+
+# Run specific test class
+dotnet test --filter FullyQualifiedName~DatabaseServiceIntegrationTests
+
+# Run integration tests only
+dotnet test --filter Category=Integration
+```
+
+**Test Requirements:**
+- Integration tests require PostgreSQL running locally
+- Set test connection string via environment variable or test configuration
+- Some service tests may require elevated permissions
 
 ## Version History
 
@@ -321,6 +420,8 @@ For detailed information:
 - 📖 [Dashboard Documentation](Slov89.PCStats.Dashboard/README.md)
 - 📖 [Data Layer Documentation](Slov89.PCStats.Data/README.md)
 - 📖 [Database Documentation](Database/README.md)
+- 📖 [Models Documentation](Slov89.PCStats.Models/README.md)
+- 🔧 [HWiNFO Diagnostics](HWiNFODiagnostics/README.md)
 
 ---
 

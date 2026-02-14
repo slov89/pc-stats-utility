@@ -262,6 +262,14 @@ The `SelectTimeRange` method automatically enables auto-refresh for ranges \u226
 - Restart the application after setting environment variable
 - Check PostgreSQL is running and accessible
 
+## Related Documentation
+
+- **[Main README](../README.md)** - Solution overview and quick start
+- **[Data Layer Documentation](../Slov89.PCStats.Data/README.md)** - MetricsService API reference
+- **[Service Documentation](../Slov89.PCStats.Service/README.md)** - Data collection service setup
+- **[Database Schema](../Database/README.md)** - Understanding the data structure
+- **[Models Documentation](../Slov89.PCStats.Models/README.md)** - Data models reference
+
 ## URLs
 
 - **Development**: `https://localhost:5001`

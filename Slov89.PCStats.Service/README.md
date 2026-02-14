@@ -207,6 +207,17 @@ For CPU temperature monitoring:
 
 **Note:** Service runs without HWiNFO, it just won't collect temperature data.
 
+**Troubleshooting HWiNFO:**
+
+If temperature data is not being collected, use the HWiNFODiagnostics utility to verify sensor access:
+
+```powershell
+cd HWiNFODiagnostics
+dotnet run
+```
+
+This will show all available sensors and verify shared memory access. See [HWiNFODiagnostics/README.md](../HWiNFODiagnostics/README.md) for detailed usage and troubleshooting.
+
 ## Service Management
 
 ### Start/Stop
@@ -310,6 +321,66 @@ dotnet run --environment Development
 - Use CPU threshold (default 5% saves ~92% storage)
 - Run periodic cleanup: `SELECT cleanup_old_snapshots(7);`
 - Adjust retention based on needs
+
+## Testing
+
+This project has comprehensive test coverage in **Slov89.PCStats.Service.Tests**.
+
+### Service Component Tests
+
+**ProcessMonitorServiceTests:**
+- Tests process enumeration and filtering
+- Validates CPU and memory metrics collection
+- Tests VRAM detection logic
+- Verifies system resource calculations
+
+**HWiNFOServiceTests:**
+- Tests HWiNFO shared memory access
+- Validates temperature reading parsing
+- Tests fallback behavior when HWiNFO not running
+- Validates sensor data extraction
+
+**OfflineStorageServiceTests:**
+- Tests JSON file creation and storage
+- Validates snapshot batch serialization
+- Tests file retrieval and cleanup
+- Verifies offline data retention policies
+
+**OfflineDatabaseServiceTests:**
+- Tests automatic offline mode switching
+- Validates recovery process and data restoration
+- Tests retry logic and error handling
+- Verifies transaction integrity during recovery
+
+### Running Tests
+
+```powershell
+# Run all service tests
+dotnet test Slov89.PCStats.Service.Tests
+
+# Run specific test class
+dotnet test --filter FullyQualifiedName~ProcessMonitorServiceTests
+
+# Run with detailed output
+dotnet test Slov89.PCStats.Service.Tests --logger "console;verbosity=detailed"
+
+# Run with code coverage
+dotnet test Slov89.PCStats.Service.Tests --collect:"XPlat Code Coverage"
+```
+
+**Requirements:**
+- Some tests may require elevated permissions for performance counter access
+- HWiNFO tests require HWiNFO installed (will skip if not available)
+- File system tests require write permissions to temp directories
+
+## Related Documentation
+
+- **[Main README](../README.md)** - Solution overview and architecture
+- **[Data Layer Documentation](../Slov89.PCStats.Data/README.md)** - DatabaseService API reference
+- **[Database Setup](../Database/README.md)** - Database initialization and schema
+- **[Dashboard Documentation](../Slov89.PCStats.Dashboard/README.md)** - Visualizing collected data
+- **[Models Documentation](../Slov89.PCStats.Models/README.md)** - Data models reference
+- **[HWiNFO Diagnostics](../HWiNFODiagnostics/README.md)** - HWiNFO troubleshooting utility
 
 ## Target Framework
 
