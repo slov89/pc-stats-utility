@@ -173,6 +173,78 @@ public class DatabaseService : IDatabaseService
         await command.ExecuteNonQueryAsync();
     }
 
+    public async Task<Dictionary<string, int>> BatchGetOrCreateProcessesAsync(List<(string processName, string? processPath)> processes)
+    {
+        var result = new Dictionary<string, int>();
+        if (!processes.Any())
+            return result;
+
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        // Use a temporary table approach for efficient bulk upsert
+        await using var transaction = await connection.BeginTransactionAsync();
+        try
+        {
+            // For each unique process, get or create it
+            // Group by process name + path to avoid duplicates
+            var uniqueProcesses = processes
+                .GroupBy(p => (p.processName, p.processPath))
+                .Select(g => g.First())
+                .ToList();
+
+            foreach (var (processName, processPath) in uniqueProcesses)
+            {
+                // Try to get existing
+                const string selectSql = @"
+                    SELECT process_id FROM processes 
+                    WHERE process_name = @processName 
+                    AND (process_path = @processPath OR (process_path IS NULL AND @processPath IS NULL))";
+
+                await using var selectCommand = new NpgsqlCommand(selectSql, connection, transaction);
+                selectCommand.Parameters.AddWithValue("processName", processName);
+                selectCommand.Parameters.AddWithValue("processPath", (object?)processPath ?? DBNull.Value);
+
+                var existingId = await selectCommand.ExecuteScalarAsync();
+                if (existingId != null)
+                {
+                    // Update last seen
+                    const string updateSql = "UPDATE processes SET last_seen = NOW() WHERE process_id = @processId";
+                    await using var updateCommand = new NpgsqlCommand(updateSql, connection, transaction);
+                    updateCommand.Parameters.AddWithValue("processId", existingId);
+                    await updateCommand.ExecuteNonQueryAsync();
+
+                    var key = $"{processName}|{processPath ?? ""}";
+                    result[key] = Convert.ToInt32(existingId);
+                }
+                else
+                {
+                    // Create new
+                    const string insertSql = @"
+                        INSERT INTO processes (process_name, process_path, first_seen, last_seen)
+                        VALUES (@processName, @processPath, NOW(), NOW())
+                        RETURNING process_id";
+
+                    await using var insertCommand = new NpgsqlCommand(insertSql, connection, transaction);
+                    insertCommand.Parameters.AddWithValue("processName", processName);
+                    insertCommand.Parameters.AddWithValue("processPath", (object?)processPath ?? DBNull.Value);
+
+                    var newId = await insertCommand.ExecuteScalarAsync();
+                    var key = $"{processName}|{processPath ?? ""}";
+                    result[key] = Convert.ToInt32(newId!);
+                }
+            }
+
+            await transaction.CommitAsync();
+            return result;
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
     public async Task BatchCreateProcessSnapshotsAsync(long snapshotId, List<(int processId, ProcessInfo processInfo)> processSnapshots)
     {
         if (!processSnapshots.Any())
@@ -181,45 +253,44 @@ public class DatabaseService : IDatabaseService
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        await using var transaction = await connection.BeginTransactionAsync();
-        try
+        // Build a single INSERT with multiple VALUES for true batch performance
+        var valuesClauses = new List<string>();
+        var parameters = new List<NpgsqlParameter>();
+        
+        for (int i = 0; i < processSnapshots.Count; i++)
         {
-            const string sql = @"
-                INSERT INTO process_snapshots (
-                    snapshot_id, process_id, pid, cpu_usage, memory_usage_mb, 
-                    private_memory_mb, virtual_memory_mb, vram_usage_mb, 
-                    thread_count, handle_count
-                )
-                VALUES (
-                    @snapshotId, @processId, @pid, @cpuUsage, @memoryUsageMb,
-                    @privateMemoryMb, @virtualMemoryMb, @vramUsageMb,
-                    @threadCount, @handleCount
-                )";
-
-            foreach (var (processId, processInfo) in processSnapshots)
-            {
-                await using var command = new NpgsqlCommand(sql, connection, transaction);
-                command.Parameters.AddWithValue("snapshotId", snapshotId);
-                command.Parameters.AddWithValue("processId", processId);
-                command.Parameters.AddWithValue("pid", processInfo.Pid);
-                command.Parameters.AddWithValue("cpuUsage", processInfo.CpuUsage);
-                command.Parameters.AddWithValue("memoryUsageMb", processInfo.MemoryUsageMb);
-                command.Parameters.AddWithValue("privateMemoryMb", processInfo.PrivateMemoryMb);
-                command.Parameters.AddWithValue("virtualMemoryMb", processInfo.VirtualMemoryMb);
-                command.Parameters.AddWithValue("vramUsageMb", (object?)processInfo.VramUsageMb ?? DBNull.Value);
-                command.Parameters.AddWithValue("threadCount", processInfo.ThreadCount);
-                command.Parameters.AddWithValue("handleCount", processInfo.HandleCount);
-
-                await command.ExecuteNonQueryAsync();
-            }
-
-            await transaction.CommitAsync();
+            var (processId, processInfo) = processSnapshots[i];
+            var prefix = $"p{i}";
+            
+            valuesClauses.Add($"(@snapshotId, @{prefix}_processId, @{prefix}_pid, @{prefix}_cpuUsage, @{prefix}_memoryUsageMb, @{prefix}_privateMemoryMb, @{prefix}_virtualMemoryMb, @{prefix}_vramUsageMb, @{prefix}_threadCount, @{prefix}_handleCount)");
+            
+            parameters.Add(new NpgsqlParameter($"{prefix}_processId", processId));
+            parameters.Add(new NpgsqlParameter($"{prefix}_pid", processInfo.Pid));
+            parameters.Add(new NpgsqlParameter($"{prefix}_cpuUsage", processInfo.CpuUsage));
+            parameters.Add(new NpgsqlParameter($"{prefix}_memoryUsageMb", processInfo.MemoryUsageMb));
+            parameters.Add(new NpgsqlParameter($"{prefix}_privateMemoryMb", processInfo.PrivateMemoryMb));
+            parameters.Add(new NpgsqlParameter($"{prefix}_virtualMemoryMb", processInfo.VirtualMemoryMb));
+            parameters.Add(new NpgsqlParameter($"{prefix}_vramUsageMb", (object?)processInfo.VramUsageMb ?? DBNull.Value));
+            parameters.Add(new NpgsqlParameter($"{prefix}_threadCount", processInfo.ThreadCount));
+            parameters.Add(new NpgsqlParameter($"{prefix}_handleCount", processInfo.HandleCount));
         }
-        catch
+
+        var sql = $@"
+            INSERT INTO process_snapshots (
+                snapshot_id, process_id, pid, cpu_usage, memory_usage_mb, 
+                private_memory_mb, virtual_memory_mb, vram_usage_mb, 
+                thread_count, handle_count
+            )
+            VALUES {string.Join(", ", valuesClauses)}";
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.Add(new NpgsqlParameter("snapshotId", snapshotId));
+        foreach (var param in parameters)
         {
-            await transaction.RollbackAsync();
-            throw;
+            command.Parameters.Add(param);
         }
+
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task<bool> IsConnectionAvailableAsync()

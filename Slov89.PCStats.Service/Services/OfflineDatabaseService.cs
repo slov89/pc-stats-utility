@@ -309,4 +309,67 @@ public class OfflineDatabaseService : IDatabaseService
         // Cleanup doesn't need offline mode support - always call database directly
         return await _databaseService.CleanupOldSnapshotsAsync(daysToKeep);
     }
+
+    public async Task<Dictionary<string, int>> BatchGetOrCreateProcessesAsync(List<(string processName, string? processPath)> processes)
+    {
+        if (_isOfflineMode)
+        {
+            // In offline mode, return deterministic hash-based IDs
+            var result = new Dictionary<string, int>();
+            foreach (var (processName, processPath) in processes)
+            {
+                var processKey = $"{processName}|{processPath ?? ""}";
+                result[processKey] = Math.Abs(processKey.GetHashCode());
+            }
+            return result;
+        }
+
+        try
+        {
+            return await _databaseService.BatchGetOrCreateProcessesAsync(processes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Database unavailable for batch process creation, switching to offline mode");
+            _isOfflineMode = true;
+            
+            // Return hash-based IDs for offline storage
+            var result = new Dictionary<string, int>();
+            foreach (var (processName, processPath) in processes)
+            {
+                var processKey = $"{processName}|{processPath ?? ""}";
+                result[processKey] = Math.Abs(processKey.GetHashCode());
+            }
+            return result;
+        }
+    }
+
+    public async Task BatchCreateProcessSnapshotsAsync(long snapshotId, List<(int processId, ProcessInfo processInfo)> processSnapshots)
+    {
+        if (_isOfflineMode)
+        {
+            // In offline mode, append each to the batch
+            foreach (var (processId, processInfo) in processSnapshots)
+            {
+                await AppendToOfflineBatch(snapshotId, processId, processInfo);
+            }
+            return;
+        }
+
+        try
+        {
+            await _databaseService.BatchCreateProcessSnapshotsAsync(snapshotId, processSnapshots);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Database unavailable for batch process snapshot creation, switching to offline mode");
+            _isOfflineMode = true;
+            
+            // Append each to offline batch
+            foreach (var (processId, processInfo) in processSnapshots)
+            {
+                await AppendToOfflineBatch(snapshotId, processId, processInfo);
+            }
+        }
+    }
 }

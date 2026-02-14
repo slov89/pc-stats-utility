@@ -12,6 +12,10 @@ public interface IDatabaseService
     Task TestConnectionAsync();
     Task<int> CleanupOldSnapshotsAsync(int daysToKeep);
     
+    // Batch operations for improved performance
+    Task<Dictionary<string, int>> BatchGetOrCreateProcessesAsync(List<(string processName, string? processPath)> processes);
+    Task BatchCreateProcessSnapshotsAsync(long snapshotId, List<(int processId, ProcessInfo processInfo)> processSnapshots);
+    
     // Offline storage recovery methods
     Task<bool> IsConnectionAvailableAsync();
     Task<long> RestoreOfflineSnapshotAsync(OfflineSnapshotData snapshotData);

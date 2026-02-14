@@ -1,5 +1,6 @@
 using Slov89.PCStats.Service.Services;
 using Slov89.PCStats.Data;
+using Slov89.PCStats.Models;
 using System.Diagnostics;
 
 namespace Slov89.PCStats.Service;
@@ -17,6 +18,7 @@ public class Worker : BackgroundService
     private readonly bool _enableAutoCleanup;
     private readonly int _cleanupIntervalHours;
     private readonly int _retentionDays;
+    private readonly int _intervalSeconds;
     private DateTime _lastCleanupTime = DateTime.MinValue;
     private int _cycleCount = 0;
 
@@ -38,6 +40,7 @@ public class Worker : BackgroundService
         _enableAutoCleanup = _configuration.GetValue<bool>("DatabaseCleanup:EnableAutoCleanup", true);
         _cleanupIntervalHours = _configuration.GetValue<int>("DatabaseCleanup:CleanupIntervalHours", 24);
         _retentionDays = _configuration.GetValue<int>("DatabaseCleanup:RetentionDays", 7);
+        _intervalSeconds = _configuration.GetValue<int>("MonitoringSettings:IntervalSeconds", 5);
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -71,16 +74,17 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("PC Stats Service started. Monitoring every 5 seconds...");
+        _logger.LogInformation("PC Stats Service started. Monitoring every {IntervalSeconds} seconds...", _intervalSeconds);
 
         // Initial delay to let performance counters initialize
         await Task.Delay(1000, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var stopwatch = Stopwatch.StartNew();
+            
             try
             {
-                var stopwatch = Stopwatch.StartNew();
                 await CollectAndLogStatsAsync();
                 stopwatch.Stop();
 
@@ -108,7 +112,20 @@ public class Worker : BackgroundService
                 _logger.LogError(ex, "Error during stats collection cycle");
             }
 
-            await Task.Delay(5000, stoppingToken); // 5 second interval
+            // Calculate remaining delay to maintain consistent interval
+            var elapsedMs = stopwatch.ElapsedMilliseconds;
+            var targetIntervalMs = _intervalSeconds * 1000;
+            var remainingDelayMs = Math.Max(0, targetIntervalMs - (int)elapsedMs);
+            
+            if (remainingDelayMs > 0)
+            {
+                await Task.Delay(remainingDelayMs, stoppingToken);
+            }
+            else
+            {
+                _logger.LogWarning("Cycle {CycleCount} took {ElapsedMs}ms, exceeding configured interval of {IntervalMs}ms",
+                    _cycleCount, elapsedMs, targetIntervalMs);
+            }
         }
     }
 
@@ -136,21 +153,6 @@ public class Worker : BackgroundService
         var processes = await _processMonitor.GetRunningProcessesAsync();
         _logger.LogDebug("Found {TotalProcessCount} running processes", processes.Count);
 
-        // First, ensure ALL processes are tracked in the processes table
-        foreach (var processInfo in processes)
-        {
-            try
-            {
-                await _databaseService.GetOrCreateProcessAsync(
-                    processInfo.ProcessName,
-                    processInfo.ProcessPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error tracking process {ProcessName}", processInfo.ProcessName);
-            }
-        }
-
         // Filter processes by CPU usage OR private memory threshold for detailed snapshot logging
         var filteredProcesses = processes
             .Where(p => p.CpuUsage >= _minimumCpuUsagePercent || p.PrivateMemoryMb >= _minimumPrivateMemoryMb)
@@ -159,22 +161,30 @@ public class Worker : BackgroundService
         _logger.LogInformation("Saving detailed metrics for {FilteredCount} of {TotalCount} processes (CPU >= {MinCpu}% OR Memory >= {MinMem}MB)",
             filteredProcesses.Count, processes.Count, _minimumCpuUsagePercent, _minimumPrivateMemoryMb);
 
-        // Store process snapshots only for processes meeting the CPU threshold
+        // Batch get/create process IDs for better performance
+        var processesToCreate = filteredProcesses
+            .Select(p => (p.ProcessName, p.ProcessPath))
+            .ToList();
+
+        var processIdMap = await _databaseService.BatchGetOrCreateProcessesAsync(processesToCreate);
+
+        // Build the batch of process snapshots
+        var processSnapshots = new List<(int processId, ProcessInfo processInfo)>();
         foreach (var processInfo in filteredProcesses)
         {
-            try
+            var key = $"{processInfo.ProcessName}|{processInfo.ProcessPath ?? ""}";
+            if (processIdMap.TryGetValue(key, out var processId))
             {
-                var processId = await _databaseService.GetOrCreateProcessAsync(
-                    processInfo.ProcessName,
-                    processInfo.ProcessPath);
-
-                await _databaseService.CreateProcessSnapshotAsync(snapshotId, processId, processInfo);
+                processSnapshots.Add((processId, processInfo));
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError(ex, "Error storing snapshot for process {ProcessName}", processInfo.ProcessName);
+                _logger.LogWarning("Failed to get process ID for {ProcessName}", processInfo.ProcessName);
             }
         }
+
+        // Batch insert all process snapshots with a single database operation
+        await _databaseService.BatchCreateProcessSnapshotsAsync(snapshotId, processSnapshots);
 
         // Get and store CPU temperatures
         _logger.LogDebug("Attempting to read CPU temperatures from HWiNFO...");
