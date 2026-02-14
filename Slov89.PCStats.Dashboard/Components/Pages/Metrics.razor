@@ -28,10 +28,6 @@
         <button type="button" class="btn btn-success ms-3" @onclick="RefreshData">
             <span class="bi bi-arrow-clockwise"></span> Refresh
         </button>
-        @if (autoRefreshEnabled)
-        {
-            <span class="ms-2 text-muted">Updates in @secondsUntilRefresh seconds</span>
-        }
     </div>
 </div>
 
@@ -204,10 +200,11 @@ else
     private bool hasError = false;
     private string errorMessage = string.Empty;
     private System.Threading.Timer? refreshTimer;
-    private int secondsUntilRefresh = 5;
-    private const int RefreshIntervalSeconds = 5;
+    private int secondsUntilRefresh = 1;
+    private const int RefreshIntervalSeconds = 1;
     private bool autoRefreshEnabled = true;
     private IJSObjectReference? jsModule;
+    private SemaphoreSlim loadDataSemaphore = new SemaphoreSlim(1, 1);
     
     private ApexChart<CpuTempMetric>? combinedCpuChart;
     private ApexChart<Snapshot>? memoryChart;
@@ -219,8 +216,7 @@ else
             Toolbar = new Toolbar { Show = false },
             Animations = new Animations 
             { 
-                Enabled = true, 
-                DynamicAnimation = new DynamicAnimation { Enabled = true, Speed = 350 } 
+                Enabled = false  // Disabled to prevent memory leaks during auto-refresh
             }
         },
         Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
@@ -286,8 +282,7 @@ else
             Toolbar = new Toolbar { Show = false },
             Animations = new Animations 
             { 
-                Enabled = true, 
-                DynamicAnimation = new DynamicAnimation { Enabled = true, Speed = 350 } 
+                Enabled = false  // Disabled to prevent memory leaks during auto-refresh
             }
         },
         Title = new Title { Style = new TitleStyle { Color = "#e0e0e0" } },
@@ -361,28 +356,29 @@ else
 
     private void StartAutoRefreshTimer()
     {
+        // Dispose existing timer to prevent multiple timers running
+        refreshTimer?.Dispose();
+        
         secondsUntilRefresh = RefreshIntervalSeconds;
-        refreshTimer = new System.Threading.Timer(async _ =>
+        // Refresh data every second
+        refreshTimer = new System.Threading.Timer(_ =>
         {
             if (autoRefreshEnabled)
             {
-                secondsUntilRefresh--;
-                
-                if (secondsUntilRefresh <= 0)
+                // Use fire-and-forget pattern with proper error handling
+                _ = InvokeAsync(async () =>
                 {
-                    await InvokeAsync(async () =>
+                    try
                     {
                         await LoadData();
-                        secondsUntilRefresh = RefreshIntervalSeconds;
-                    });
-                }
-                else
-                {
-                    // Only update the countdown display, don't reload data
-                    await InvokeAsync(StateHasChanged);
-                }
+                    }
+                    catch
+                    {
+                        // Ignore errors in background refresh
+                    }
+                });
             }
-        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }, null, TimeSpan.FromSeconds(RefreshIntervalSeconds), TimeSpan.FromSeconds(RefreshIntervalSeconds));
     }
 
     private async Task SelectTimeRange(int minutes)
@@ -393,7 +389,6 @@ else
         if (selectedMinutes <= 60)
         {
             autoRefreshEnabled = true;
-            ResetRefreshTimer();
         }
         else if (selectedMinutes >= 180)
         {
@@ -401,25 +396,18 @@ else
         }
         
         await LoadData();
-        ResetRefreshTimer();
     }
 
     private async Task RefreshData()
     {
         await LoadData();
-        ResetRefreshTimer();
-    }
-
-    private void ResetRefreshTimer()
-    {
-        secondsUntilRefresh = RefreshIntervalSeconds;
     }
 
     private async Task UpdateChartsAsync()
     {
         try
         {
-            // Use UpdateSeriesAsync for smoother updates without full re-render
+            // Use UpdateSeriesAsync for smoother updates
             if (combinedCpuChart != null)
                 await combinedCpuChart.UpdateSeriesAsync();
             
@@ -435,6 +423,7 @@ else
     public async ValueTask DisposeAsync()
     {
         refreshTimer?.Dispose();
+        loadDataSemaphore?.Dispose();
         
         if (jsModule != null)
         {
@@ -444,20 +433,26 @@ else
 
     private async Task LoadData()
     {
-        // Only show loading spinner on initial load, not on auto-refresh
-        var isInitialLoad = !snapshots.Any();
-        
-        if (isInitialLoad)
+        // Skip if another load is in progress (non-blocking check)
+        if (!await loadDataSemaphore.WaitAsync(0))
         {
-            isLoading = true;
-            StateHasChanged();
+            return; // Another load is in progress, skip this one
         }
-        
-        hasError = false;
-        errorMessage = string.Empty;
 
         try
         {
+            // Only show loading spinner on initial load, not on auto-refresh
+            var isInitialLoad = !snapshots.Any();
+            
+            if (isInitialLoad)
+            {
+                isLoading = true;
+                StateHasChanged();
+            }
+            
+            hasError = false;
+            errorMessage = string.Empty;
+            
             var endTime = DateTime.Now;
             var startTime = endTime.AddMinutes(-selectedMinutes);
 
@@ -510,17 +505,21 @@ else
         }
         finally
         {
-            if (isInitialLoad)
+            if (isLoading)
             {
                 isLoading = false;
-                StateHasChanged();
             }
             
-            // Update charts after data loads (will trigger StateHasChanged internally)
+            // Update charts after data loads
             await UpdateChartsAsync();
             
             // Update process snapshot data in JavaScript for tooltip
             await UpdateProcessSnapshotDataInJs();
+            
+            // Ensure UI updates
+            StateHasChanged();
+            
+            loadDataSemaphore.Release();
         }
     }
 

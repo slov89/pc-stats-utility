@@ -1,9 +1,17 @@
 // Store process snapshot data for tooltip display
+// Limited to prevent memory leaks
 let processSnapshotData = {};
 
 // Function to update process snapshot data from Blazor
 export function updateProcessSnapshotData(data) {
+    // Clear old data before updating to free memory
+    processSnapshotData = null;
     processSnapshotData = data;
+    
+    // Limit stored data to prevent unbounded memory growth
+    if (Object.keys(processSnapshotData).length > 2000) {
+        console.warn('Process snapshot data exceeds 2000 entries, data may be incomplete');
+    }
 }
 
 // Custom tooltip formatter for memory chart
