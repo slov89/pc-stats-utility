@@ -14,8 +14,9 @@ Data is stored in PostgreSQL for analysis and visualization.
 ## Features
 
 - **Automatic Collection**: Configurable interval (default: every 5 seconds)
-- **Smart Filtering**: Only saves detailed metrics for processes with CPU usage >= threshold (default 5%)
+- **Smart Filtering**: Only saves detailed metrics for processes with CPU >= 1% OR memory >= 100MB
 - **Process Tracking**: All processes tracked in database, regardless of threshold
+- **Automatic Cleanup**: Periodic removal of old data based on retention period (default: 7 days)
 - **HWiNFO Integration**: Optional CPU temperature monitoring
 - **Offline Storage**: Automatic fallback to local JSON storage when database is unavailable
 - **Automatic Recovery**: Bulk restoration of offline data when database reconnects
@@ -73,9 +74,10 @@ Main background service that orchestrates data collection.
 3. Read CPU temperatures (if HWiNFO running)
 4. Create snapshot in database (or offline storage)
 5. Track all processes in `processes` table
-6. Filter processes by CPU threshold
+6. Filter processes by dual threshold (CPU >= 1% OR Memory >= 100MB)
 7. Save detailed metrics for filtered processes
-8. Wait for configured interval, repeat
+8. Periodically run automatic cleanup (every 24 hours by default)
+9. Wait for configured interval, repeat
 
 ## Configuration
 
@@ -106,7 +108,13 @@ This sets the `slov89_pc_stats_utility_pg` environment variable.
     "IntervalSeconds": 5,
     "EnableVRAMMonitoring": true,
     "EnableCPUTemperatureMonitoring": true,
-    "MinimumCpuUsagePercent": 5.0
+    "MinimumCpuUsagePercent": 1.0,
+    "MinimumPrivateMemoryMb": 100
+  },
+  "DatabaseCleanup": {
+    "EnableAutoCleanup": true,
+    "CleanupIntervalHours": 24,
+    "RetentionDays": 7
   },
   "OfflineStorage": {
     "Path": "C:\\\\ProgramData\\\\Slov89.PCStats.Service\\\\OfflineData",
@@ -120,7 +128,13 @@ This sets the `slov89_pc_stats_utility_pg` environment variable.
 - `IntervalSeconds` - Collection interval in seconds (default: 5)
 - `EnableVRAMMonitoring` - Enable VRAM tracking (may not work on all GPUs)
 - `EnableCPUTemperatureMonitoring` - Enable HWiNFO temperature monitoring
-- `MinimumCpuUsagePercent` - CPU threshold for detailed metrics (0 = all processes)
+- `MinimumCpuUsagePercent` - CPU threshold for detailed metrics (default: 1.0%, 0 = all processes)
+- `MinimumPrivateMemoryMb` - Memory threshold for detailed metrics (default: 100MB)
+
+**Database Cleanup Settings:**
+- `EnableAutoCleanup` - Enable automatic database cleanup (default: true)
+- `CleanupIntervalHours` - How often to run cleanup in hours (default: 24)
+- `RetentionDays` - How many days of data to keep (default: 7)
 
 **Offline Storage Settings:**
 - `Path` - Directory for offline JSON files (default: `C:\\ProgramData\\Slov89.PCStats.Service\\OfflineData`)
@@ -190,9 +204,9 @@ The script will:
 dotnet publish -c Release -o C:\Services\Slov89.PCStats.Service
 
 # Install as Windows Service (requires Administrator)
-sc.exe create Slov89PCStatsService binPath="C:\Services\Slov89.PCStats.Service\Slov89.PCStats.Service.exe" start=auto
-sc.exe description Slov89PCStatsService "Monitors PC performance stats and logs to PostgreSQL database"
-sc.exe start Slov89PCStatsService
+sc.exe create "Slov89.PCStats.Service" binPath="C:\Services\Slov89.PCStats.Service\Slov89.PCStats.Service.exe" start=auto
+sc.exe description "Slov89.PCStats.Service" "Monitors PC performance stats and logs to PostgreSQL database"
+sc.exe start "Slov89.PCStats.Service"
 ```
 
 ## HWiNFO Setup (Optional)
@@ -224,20 +238,20 @@ This will show all available sensors and verify shared memory access. See [HWiNF
 
 ```powershell
 # Start
-Start-Service Slov89PCStatsService
+Start-Service "Slov89.PCStats.Service"
 
 # Stop
-Stop-Service Slov89PCStatsService
+Stop-Service "Slov89.PCStats.Service"
 
 # Status
-Get-Service Slov89PCStatsService
+Get-Service "Slov89.PCStats.Service"
 ```
 
 ### View Logs
 
 1. Open Event Viewer (`eventvwr.msc`)
 2. Navigate to: Windows Logs → Application
-3. Filter by source: "Slov89PCStatsService"
+3. Filter by source: "Slov89.PCStats.Service"
 
 **Log Levels:**
 - **Information**: Service start/stop, snapshots created
@@ -252,8 +266,8 @@ cd Slov89.PCStats.Service
 .\Uninstall-Service.ps1
 
 # Or manually
-Stop-Service Slov89PCStatsService
-sc.exe delete Slov89PCStatsService
+Stop-Service "Slov89.PCStats.Service"
+sc.exe delete "Slov89.PCStats.Service"
 ```
 
 ## Development
@@ -315,12 +329,14 @@ dotnet run --environment Development
 ### High CPU Usage
 - Normal usage: 1-3% on average
 - Check process count (200+ processes = higher CPU)
-- Consider increasing `MinimumCpuUsagePercent` to reduce I/O
+- Consider increasing `MinimumCpuUsagePercent` or `MinimumPrivateMemoryMb` to reduce I/O
 
 ### Database Growing Too Fast
-- Use CPU threshold (default 5% saves ~92% storage)
-- Run periodic cleanup: `SELECT cleanup_old_snapshots(7);`
-- Adjust retention based on needs
+- Dual thresholds (CPU >= 1% OR Memory >= 100MB) save ~92% storage
+- Automatic cleanup runs every 24 hours by default (configurable)
+- Manual cleanup: `SELECT cleanup_old_snapshots(7);`
+- Adjust retention via `DatabaseCleanup:RetentionDays` in appsettings.json
+- Disable auto-cleanup: Set `DatabaseCleanup:EnableAutoCleanup` to false
 
 ## Testing
 

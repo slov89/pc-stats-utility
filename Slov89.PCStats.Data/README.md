@@ -25,6 +25,7 @@ Handles write operations for storing monitoring data.
 - `CreateProcessSnapshotAsync(snapshotId, processId, processInfo)` - Create process performance snapshot
 - `CreateCpuTemperatureAsync(snapshotId, temperature)` - Create CPU temperature record
 - `BatchCreateProcessSnapshotsAsync(snapshotId, processSnapshots)` - Batch insert process snapshots (transactional)
+- `CleanupOldSnapshotsAsync(daysToKeep)` - Remove snapshots older than specified days, returns count deleted
 
 **Offline Storage Methods:**
 - `IsConnectionAvailableAsync()` - Check if database connection is available
@@ -53,6 +54,9 @@ var processId = await _databaseService.GetOrCreateProcessAsync(
 
 // Create process snapshot
 await _databaseService.CreateProcessSnapshotAsync(snapshotId, processId, processInfo);
+
+// Cleanup old data
+var deletedCount = await _databaseService.CleanupOldSnapshotsAsync(daysToKeep: 7);
 ```
 
 ### MetricsService

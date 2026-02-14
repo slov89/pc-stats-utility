@@ -21,13 +21,14 @@ Data is stored in PostgreSQL with an efficient normalized schema, indexed for fa
 ## Key Features
 
 - **Automated Monitoring**: Collects system and process metrics every 5 seconds
-- **Smart Filtering**: Only saves detailed metrics for processes with CPU usage >= threshold (default 5%)
+- **Smart Filtering**: Only saves detailed metrics for processes with CPU >= 1% OR memory >= 100MB
 - **CPU Temperature Tracking**: Integrates with HWiNFO v8.14 for AMD CPU temperature sensors
 - **Real-time Dashboard**: Interactive web UI with combined CPU/temperature charts, memory graphs, and top processes
 - **Flexible Time Ranges**: View metrics from 5 minutes to 24 hours (5min, 10min, 30min, 1hr, 3hr, 6hr, 12hr, 24hr)
 - **Auto-Refresh**: Automatic updates for short time ranges (≤1 hour), manual refresh for longer ranges
 - **Comprehensive Statistics**: 10 metrics including averages, minimums, and peaks for CPU, temperature, and memory
-- **Storage Optimization**: ~92% storage reduction with CPU threshold filtering
+- **Storage Optimization**: ~92% storage reduction with dual CPU/memory threshold filtering
+- **Automatic Cleanup**: Periodically removes old data based on configurable retention period (default: 7 days)
 - **Offline Storage**: Automatically saves data to JSON files when database is unavailable, with automatic recovery
 - **Zero Data Loss**: Continuous monitoring even during database outages
 - **Windows Service**: Runs in background, starts with Windows
@@ -191,7 +192,7 @@ See [Database/README.md](Database/README.md) for full schema, views, and useful 
 
 ## Performance & Storage
 
-### Data Volume (with 5% CPU threshold)
+### Data Volume (with dual thresholds: CPU >= 1% OR Memory >= 100MB)
 - **12 snapshots/minute** (5-second intervals)
 - **~10-30 active processes per snapshot** (filtered from ~200 total)
 - **~350,000 records/day**
@@ -200,7 +201,7 @@ See [Database/README.md](Database/README.md) for full schema, views, and useful 
 
 ### Cleanup
 
-Use the provided function to remove old data:
+The monitoring service automatically runs cleanup every 24 hours (configurable). You can also manually clean old data:
 ```sql
 SELECT cleanup_old_snapshots(7);  -- Keep last 7 days
 ```
@@ -250,7 +251,7 @@ Both Service and Dashboard read the connection string from:
 
 ### Check Service Status
 ```powershell
-Get-Service Slov89.PCStats.Service
+Get-Service "Slov89.PCStats.Service"
 ```
 
 ### View Service Logs
@@ -370,6 +371,14 @@ dotnet test --filter Category=Integration
 - Some service tests may require elevated permissions
 
 ## Version History
+
+### v2.3 - Enhanced Filtering & Automatic Cleanup
+- Added dual threshold filtering: CPU >= 1% OR Memory >= 100MB (previously CPU only)
+- Automatic database cleanup runs every 24 hours (configurable)
+- New `MinimumPrivateMemoryMb` configuration setting (default: 100MB)
+- New `DatabaseCleanup` configuration section with retention settings
+- Reduced default CPU threshold from 5% to 1% for better process tracking
+- Enhanced Worker service with automatic cleanup scheduling
 
 ### v2.2 - Dashboard Enhancements
 - Combined CPU usage and temperature into single full-width chart with shared tooltips

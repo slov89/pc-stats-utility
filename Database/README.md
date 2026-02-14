@@ -58,7 +58,7 @@ Master list of all unique processes ever observed.
 
 ### process_snapshots
 
-Performance metrics for each process at each snapshot. Only contains records for processes meeting the CPU threshold (default 5%).
+Performance metrics for each process at each snapshot. Only contains records for processes meeting the dual threshold (CPU >= 1% OR Memory >= 100MB by default).
 
 **Columns:**
 - `process_snapshot_id` (BIGSERIAL, PK) - Unique record identifier
@@ -78,7 +78,7 @@ Performance metrics for each process at each snapshot. Only contains records for
 - Foreign key indexes on `snapshot_id` and `process_id`
 - Performance indexes on `cpu_usage DESC` and `memory_usage_mb DESC`
 
-**Storage:** With 5% CPU threshold, ~10-30 processes per snapshot (~300,000 records/day)
+**Storage:** With dual thresholds (CPU >= 1% OR Memory >= 100MB), ~10-30 processes per snapshot (~300,000 records/day)
 
 ### cpu_temperatures
 
@@ -159,9 +159,9 @@ SELECT cleanup_old_snapshots(7);
 SELECT cleanup_old_snapshots();
 ```
 
-**Note:** Due to CASCADE DELETE constraints, this also removes:
-- Related `process_snapshots` records
-- Related `cpu_temperatures` records
+**Note:** 
+- Due to CASCADE DELETE constraints, this also removes related `process_snapshots` and `cpu_temperatures` records
+- The monitoring service automatically runs this function every 24 hours (configurable via `DatabaseCleanup` settings)
 
 ## Setup Instructions
 
@@ -331,17 +331,17 @@ FROM snapshots;
 
 ### Storage Estimates
 
-With default settings (5 second intervals, 5% CPU threshold):
+With default settings (5 second intervals, CPU >= 1% OR Memory >= 100MB thresholds):
 - **Snapshots**: ~850 KB/day
 - **Process Snapshots**: ~31 MB/day (10-30 processes per snapshot)
 - **CPU Temperatures**: ~700 KB/day
 - **Total**: ~33 MB/day
 
-Without CPU threshold (all processes):
+Without thresholds (all processes):
 - **Process Snapshots**: ~377 MB/day (200+ processes per snapshot)
 - **Total**: ~408 MB/day
 
-**Storage savings with threshold: ~92%**
+**Storage savings with dual thresholds: ~92%**
 
 ### Index Optimization
 
@@ -360,7 +360,11 @@ All frequently-queried columns are indexed:
 
 ## Maintenance
 
-### Regular Cleanup
+### Automatic Cleanup
+
+The monitoring service automatically runs the cleanup function every 24 hours (configurable via `DatabaseCleanup` settings in appsettings.json).
+
+### Manual Cleanup
 
 Run cleanup function periodically (e.g., weekly via cron or scheduled task):
 
