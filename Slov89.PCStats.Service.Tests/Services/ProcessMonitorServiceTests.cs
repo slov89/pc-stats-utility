@@ -9,18 +9,22 @@ namespace Slov89.PCStats.Service.Tests.Services;
 public class ProcessMonitorServiceTests
 {
     private readonly Mock<ILogger<ProcessMonitorService>> _mockLogger;
-    private readonly Mock<IConfiguration> _mockConfiguration;
+    private readonly IConfiguration _configuration;
     private readonly ProcessMonitorService _service;
 
     public ProcessMonitorServiceTests()
     {
         _mockLogger = new Mock<ILogger<ProcessMonitorService>>();
-        _mockConfiguration = new Mock<IConfiguration>();
         
-        // Setup default configuration values
-        _mockConfiguration.Setup(c => c["MonitoringSettings:EnableVRAMMonitoring"]).Returns("false");
+        // Create real configuration instead of mocking
+        var configBuilder = new ConfigurationBuilder();
+        configBuilder.AddInMemoryCollection(new Dictionary<string, string>
+        {
+            { "MonitoringSettings:EnableVRAMMonitoring", "false" }
+        });
+        _configuration = configBuilder.Build();
         
-        _service = new ProcessMonitorService(_mockLogger.Object, _mockConfiguration.Object);
+        _service = new ProcessMonitorService(_mockLogger.Object, _configuration);
     }
 
     [Fact]
