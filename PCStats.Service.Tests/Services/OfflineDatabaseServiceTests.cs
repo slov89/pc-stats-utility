@@ -292,4 +292,231 @@ public class OfflineDatabaseServiceTests
             x => x.SaveOfflineSnapshotAsync(It.IsAny<OfflineSnapshotBatch>()),
             Times.AtLeastOnce);
     }
+
+    [Fact]
+    public async Task CreateSnapshotWithDataAsync_ShouldCallDatabase_WhenOnline()
+    {
+        // Arrange
+        var processSnapshots = new List<(int processId, ProcessInfo processInfo)>
+        {
+            (123, new ProcessInfo { ProcessName = "chrome.exe", Pid = 1234, CpuUsage = 15.5m, MemoryUsageMb = 512 }),
+            (456, new ProcessInfo { ProcessName = "firefox.exe", Pid = 5678, CpuUsage = 10.2m, MemoryUsageMb = 384 })
+        };
+
+        var temperature = new CpuTemperature { CpuTctlTdie = 65.5m, CpuDieAverage = 62.0m };
+
+        _databaseServiceMock
+            .Setup(x => x.CreateSnapshotWithDataAsync(
+                It.IsAny<decimal?>(), It.IsAny<long?>(), It.IsAny<long?>(),
+                It.IsAny<List<(int, ProcessInfo)>>(), It.IsAny<CpuTemperature?>()))
+            .ReturnsAsync(999L);
+
+        // Act
+        var result = await _service.CreateSnapshotWithDataAsync(25.5m, 8192, 4096, processSnapshots, temperature);
+
+        // Assert
+        result.Should().Be(999L);
+        _databaseServiceMock.Verify(
+            x => x.CreateSnapshotWithDataAsync(25.5m, 8192, 4096, processSnapshots, temperature),
+            Times.Once);
+        _offlineStorageMock.Verify(
+            x => x.SaveOfflineSnapshotAsync(It.IsAny<OfflineSnapshotBatch>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateSnapshotWithDataAsync_ShouldUseOfflineStorage_WhenAlreadyInOfflineMode()
+    {
+        // Arrange - Force offline mode by failing batch process creation first
+        _databaseServiceMock
+            .Setup(x => x.BatchGetOrCreateProcessesAsync(It.IsAny<List<(string, string?)>>()))
+            .ThrowsAsync(new Exception("Database offline"));
+
+        _offlineStorageMock.Setup(x => x.GetNextLocalSnapshotId()).Returns(999L);
+        _offlineStorageMock.Setup(x => x.GetPendingOfflineSnapshotsAsync())
+            .ReturnsAsync(new List<OfflineSnapshotBatch>());
+
+        // Force offline mode by failing batch process creation
+        var processes = new List<(string, string?)> { ("chrome.exe", null), ("firefox.exe", null) };
+        var fakeProcessIds = await _service.BatchGetOrCreateProcessesAsync(processes);
+
+        var processSnapshots = new List<(int, ProcessInfo)>
+        {
+            (fakeProcessIds["chrome.exe|"], new ProcessInfo { ProcessName = "chrome.exe", Pid = 1234, CpuUsage = 15.5m, MemoryUsageMb = 512 }),
+            (fakeProcessIds["firefox.exe|"], new ProcessInfo { ProcessName = "firefox.exe", Pid = 5678, CpuUsage = 10.2m, MemoryUsageMb = 384 })
+        };
+
+        var temperature = new CpuTemperature { CpuTctlTdie = 65.5m };
+
+        // Act - Call CreateSnapshotWithDataAsync while already in offline mode (THIS WAS THE BUG!)
+        var snapshotId = await _service.CreateSnapshotWithDataAsync(25.5m, 8192, 4096, processSnapshots, temperature);
+
+        // Assert - Should NOT attempt to call database with fake offline process IDs
+        _databaseServiceMock.Verify(
+            x => x.CreateSnapshotWithDataAsync(
+                It.IsAny<decimal?>(), It.IsAny<long?>(), It.IsAny<long?>(),
+                It.IsAny<List<(int, ProcessInfo)>>(), It.IsAny<CpuTemperature?>()),
+            Times.Never); // This would have caught the FK constraint bug!
+
+        // Should save to offline storage instead
+        _offlineStorageMock.Verify(
+            x => x.SaveOfflineSnapshotAsync(It.Is<OfflineSnapshotBatch>(
+                batch => batch.ProcessSnapshots.Count == 2 &&
+                         batch.CpuTemperature != null)),
+            Times.AtLeastOnce);
+
+        snapshotId.Should().Be(999L);
+    }
+
+    [Fact]
+    public async Task CreateSnapshotWithDataAsync_ShouldSwitchToOfflineMode_WhenDatabaseFails()
+    {
+        // Arrange
+        var processSnapshots = new List<(int, ProcessInfo)>
+        {
+            (123, new ProcessInfo { ProcessName = "chrome.exe", Pid = 1234, CpuUsage = 15.5m, MemoryUsageMb = 512 })
+        };
+
+        _databaseServiceMock
+            .Setup(x => x.CreateSnapshotWithDataAsync(
+                It.IsAny<decimal?>(), It.IsAny<long?>(), It.IsAny<long?>(),
+                It.IsAny<List<(int, ProcessInfo)>>(), It.IsAny<CpuTemperature?>()))
+            .ThrowsAsync(new Exception("Database connection failed"));
+
+        _offlineStorageMock.Setup(x => x.GetNextLocalSnapshotId()).Returns(777L);
+
+        // Act
+        var result = await _service.CreateSnapshotWithDataAsync(25.5m, 8192, 4096, processSnapshots, null);
+
+        // Assert - Should have switched to offline mode
+        result.Should().Be(777L);
+        _offlineStorageMock.Verify(
+            x => x.SaveOfflineSnapshotAsync(It.Is<OfflineSnapshotBatch>(
+                batch => batch.SnapshotData != null &&
+                         batch.ProcessSnapshots.Count == 1)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_ShouldConnectToDatabase_WhenAvailable()
+    {
+        // Arrange
+        _databaseServiceMock
+            .Setup(x => x.InitializeAsync())
+            .Returns(Task.CompletedTask);
+
+        _offlineStorageMock
+            .Setup(x => x.IsRecoveryNeededAsync())
+            .ReturnsAsync(false);
+
+        // Act
+        await _service.InitializeAsync();
+
+        // Assert
+        _databaseServiceMock.Verify(x => x.InitializeAsync(), Times.Once);
+        _offlineStorageMock.Verify(x => x.IsRecoveryNeededAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_ShouldRecoverPendingOfflineData_WhenDatabaseIsOnline()
+    {
+        // Arrange
+        _databaseServiceMock
+            .Setup(x => x.InitializeAsync())
+            .Returns(Task.CompletedTask);
+
+        _offlineStorageMock
+            .Setup(x => x.IsRecoveryNeededAsync())
+            .ReturnsAsync(true);
+
+        _offlineStorageMock
+            .Setup(x => x.GetPendingSnapshotCountAsync())
+            .ReturnsAsync(50);
+
+        // Act
+        await _service.InitializeAsync();
+
+        // Allow background recovery task to start
+        await Task.Delay(100);
+
+        // Assert - Should check for and report pending offline data
+        _offlineStorageMock.Verify(x => x.IsRecoveryNeededAsync(), Times.Once);
+        _offlineStorageMock.Verify(x => x.GetPendingSnapshotCountAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_ShouldStartInOfflineMode_WhenDatabaseUnavailable()
+    {
+        // Arrange
+        _databaseServiceMock
+            .Setup(x => x.InitializeAsync())
+            .ThrowsAsync(new Exception("Database connection failed"));
+
+        _offlineStorageMock.Setup(x => x.GetNextLocalSnapshotId()).Returns(1L);
+
+        // Act
+        await _service.InitializeAsync();
+
+        // Verify we're in offline mode by testing subsequent operations
+        var result = await _service.GetOrCreateProcessAsync("test.exe", null);
+
+        // Assert - Should return hashed ID (indicates offline mode)
+        result.Should().BeGreaterThan(0);
+        _databaseServiceMock.Verify(x => x.GetOrCreateProcessAsync(It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task BatchGetOrCreateProcessesAsync_FollowedByCreateSnapshotWithDataAsync_ShouldNotCauseForeignKeyViolation()
+    {
+        // Arrange - Simulate the exact bug scenario
+        // Step 1: BatchGetOrCreateProcessesAsync fails and switches to offline mode
+        _databaseServiceMock
+            .Setup(x => x.BatchGetOrCreateProcessesAsync(It.IsAny<List<(string, string?)>>()))
+            .ThrowsAsync(new Exception("Database connection lost"));
+
+        _offlineStorageMock.Setup(x => x.GetNextLocalSnapshotId()).Returns(111L);
+        _offlineStorageMock.Setup(x => x.GetPendingOfflineSnapshotsAsync())
+            .ReturnsAsync(new List<OfflineSnapshotBatch>());
+
+        // Act - This is the real-world call sequence that caused the bug
+        var processes = new List<(string, string?)>
+        {
+            ("chrome.exe", "C:\\Chrome\\chrome.exe"),
+            ("firefox.exe", "C:\\Firefox\\firefox.exe")
+        };
+
+        // Step 1: Get fake process IDs (switches to offline mode)
+        var processIdMap = await _service.BatchGetOrCreateProcessesAsync(processes);
+
+        // Step 2: Create snapshot with those fake IDs
+        var processSnapshots = new List<(int, ProcessInfo)>
+        {
+            (processIdMap["chrome.exe|C:\\Chrome\\chrome.exe"],
+                new ProcessInfo { ProcessName = "chrome.exe", ProcessPath = "C:\\Chrome\\chrome.exe", Pid = 1234, CpuUsage = 15m, MemoryUsageMb = 500 }),
+            (processIdMap["firefox.exe|C:\\Firefox\\firefox.exe"],
+                new ProcessInfo { ProcessName = "firefox.exe", ProcessPath = "C:\\Firefox\\firefox.exe", Pid = 5678, CpuUsage = 10m, MemoryUsageMb = 400 })
+        };
+
+        var temperature = new CpuTemperature { CpuTctlTdie = 65m };
+
+        var snapshotId = await _service.CreateSnapshotWithDataAsync(25m, 8000, 4000, processSnapshots, temperature);
+
+        // Assert - The critical fix: Should NOT try to use fake IDs with real database
+        _databaseServiceMock.Verify(
+            x => x.CreateSnapshotWithDataAsync(
+                It.IsAny<decimal?>(), It.IsAny<long?>(), It.IsAny<long?>(),
+                It.IsAny<List<(int, ProcessInfo)>>(), It.IsAny<CpuTemperature?>()),
+            Times.Never,
+            "CreateSnapshotWithDataAsync should not attempt database operation when already in offline mode");
+
+        // Should save everything to offline storage
+        _offlineStorageMock.Verify(
+            x => x.SaveOfflineSnapshotAsync(It.Is<OfflineSnapshotBatch>(
+                batch => batch.ProcessSnapshots.Count == 2 &&
+                         batch.CpuTemperature != null &&
+                         batch.SnapshotData != null)),
+            Times.Once);
+
+        snapshotId.Should().Be(111L);
+    }
 }
