@@ -13,6 +13,8 @@ public class OfflineDatabaseService : IDatabaseService
     private readonly IOfflineStorageService _offlineStorage;
     private readonly ILogger<OfflineDatabaseService> _logger;
     private bool _isOfflineMode = false;
+    private DateTime _lastDbCheckTime = DateTime.MinValue;
+    private readonly TimeSpan _dbCheckInterval = TimeSpan.FromMinutes(1);
 
     public OfflineDatabaseService(
         IDatabaseService databaseService,
@@ -30,11 +32,20 @@ public class OfflineDatabaseService : IDatabaseService
         {
             await _databaseService.InitializeAsync();
             _logger.LogInformation("Database connection established - operating in online mode");
+            
+            var hasPendingData = await _offlineStorage.IsRecoveryNeededAsync();
+            if (hasPendingData)
+            {
+                var pendingCount = await _offlineStorage.GetPendingSnapshotCountAsync();
+                _logger.LogInformation("Found {Count} pending offline snapshots from previous run, starting recovery...", pendingCount);
+                _ = Task.Run(async () => await TryRecoverOfflineDataAsync());
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Database connection failed during initialization - starting in offline mode");
             _isOfflineMode = true;
+            _lastDbCheckTime = DateTime.UtcNow;
         }
     }
 
@@ -50,24 +61,40 @@ public class OfflineDatabaseService : IDatabaseService
 
     public async Task<long> CreateSnapshotAsync(decimal? totalCpuUsage, long? totalMemoryMb, long? availableMemoryMb)
     {
+        if (_isOfflineMode)
+        {
+            var localSnapshotId = _offlineStorage.GetNextLocalSnapshotId();
+            
+            var snapshotData = new OfflineSnapshotData
+            {
+                TotalCpuUsage = totalCpuUsage,
+                TotalMemoryMb = totalMemoryMb,
+                AvailableMemoryMb = availableMemoryMb,
+                LocalSnapshotId = localSnapshotId,
+                Timestamp = DateTime.UtcNow
+            };
+
+            var batch = new OfflineSnapshotBatch
+            {
+                LocalSnapshotId = localSnapshotId,
+                SnapshotData = snapshotData
+            };
+            
+            await _offlineStorage.SaveOfflineSnapshotAsync(batch);
+            
+            return localSnapshotId;
+        }
+
         try
         {
             var result = await _databaseService.CreateSnapshotAsync(totalCpuUsage, totalMemoryMb, availableMemoryMb);
-            
-            if (_isOfflineMode)
-            {
-                _isOfflineMode = false;
-                _logger.LogInformation("Database connection restored, switching back to online mode");
-                
-                _ = Task.Run(async () => await TryRecoverOfflineDataAsync());
-            }
-            
             return result;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Database unavailable for snapshot creation, switching to offline mode");
             _isOfflineMode = true;
+            _lastDbCheckTime = DateTime.UtcNow;
             
             var localSnapshotId = _offlineStorage.GetNextLocalSnapshotId();
             
@@ -108,6 +135,7 @@ public class OfflineDatabaseService : IDatabaseService
         {
             _logger.LogWarning(ex, "Database unavailable for process creation, switching to offline mode");
             _isOfflineMode = true;
+            _lastDbCheckTime = DateTime.UtcNow;
             
             var processKey = $"{processName}|{processPath}";
             return Math.Abs(processKey.GetHashCode());
@@ -130,6 +158,7 @@ public class OfflineDatabaseService : IDatabaseService
         {
             _logger.LogWarning(ex, "Database unavailable for process snapshot creation, switching to offline mode");
             _isOfflineMode = true;
+            _lastDbCheckTime = DateTime.UtcNow;
             await AppendToOfflineBatch(snapshotId, processId, processInfo);
         }
     }
@@ -150,6 +179,7 @@ public class OfflineDatabaseService : IDatabaseService
         {
             _logger.LogWarning(ex, "Database unavailable for CPU temperature creation, switching to offline mode");
             _isOfflineMode = true;
+            _lastDbCheckTime = DateTime.UtcNow;
             await AppendCpuTemperatureToOfflineBatch(snapshotId, temperature);
         }
     }
@@ -313,6 +343,7 @@ public class OfflineDatabaseService : IDatabaseService
         {
             _logger.LogWarning(ex, "Database unavailable for batch process creation, switching to offline mode");
             _isOfflineMode = true;
+            _lastDbCheckTime = DateTime.UtcNow;
             
             var result = new Dictionary<string, int>();
             foreach (var (processName, processPath) in processes)
@@ -343,6 +374,7 @@ public class OfflineDatabaseService : IDatabaseService
         {
             _logger.LogWarning(ex, "Database unavailable for batch process snapshot creation, switching to offline mode");
             _isOfflineMode = true;
+            _lastDbCheckTime = DateTime.UtcNow;
             
             foreach (var (processId, processInfo) in processSnapshots)
             {
@@ -358,6 +390,71 @@ public class OfflineDatabaseService : IDatabaseService
         List<(int processId, ProcessInfo processInfo)> processSnapshots,
         CpuTemperature? cpuTemperature)
     {
+        if (_isOfflineMode)
+        {
+            var timeSinceLastCheck = DateTime.UtcNow - _lastDbCheckTime;
+            if (timeSinceLastCheck >= _dbCheckInterval)
+            {
+                _lastDbCheckTime = DateTime.UtcNow;
+                var isAvailable = await _databaseService.IsConnectionAvailableAsync();
+                if (isAvailable)
+                {
+                    _logger.LogInformation("Database connection restored, switching back to online mode");
+                    _isOfflineMode = false;
+                    _ = Task.Run(async () => await TryRecoverOfflineDataAsync());
+                }
+                else
+                {
+                    _logger.LogDebug("Database still unavailable, remaining in offline mode");
+                }
+            }
+        }
+
+        if (_isOfflineMode)
+        {
+            var localSnapshotId = _offlineStorage.GetNextLocalSnapshotId();
+            
+            var snapshotData = new OfflineSnapshotData
+            {
+                TotalCpuUsage = totalCpuUsage,
+                TotalMemoryMb = totalMemoryMb,
+                AvailableMemoryMb = availableMemoryMb,
+                LocalSnapshotId = localSnapshotId,
+                Timestamp = DateTime.UtcNow
+            };
+
+            var batch = new OfflineSnapshotBatch
+            {
+                LocalSnapshotId = localSnapshotId,
+                SnapshotData = snapshotData
+            };
+
+            foreach (var (processId, processInfo) in processSnapshots)
+            {
+                batch.ProcessSnapshots.Add(new OfflineProcessSnapshotData
+                {
+                    LocalSnapshotId = localSnapshotId,
+                    LocalProcessId = processId,
+                    ProcessInfo = processInfo,
+                    ProcessName = processInfo.ProcessName,
+                    ProcessPath = processInfo.ProcessPath
+                });
+            }
+
+            if (cpuTemperature != null)
+            {
+                batch.CpuTemperature = new OfflineCpuTemperatureData
+                {
+                    LocalSnapshotId = localSnapshotId,
+                    Temperature = cpuTemperature
+                };
+            }
+            
+            await _offlineStorage.SaveOfflineSnapshotAsync(batch);
+            
+            return localSnapshotId;
+        }
+
         try
         {
             var result = await _databaseService.CreateSnapshotWithDataAsync(
@@ -367,20 +464,13 @@ public class OfflineDatabaseService : IDatabaseService
                 processSnapshots,
                 cpuTemperature);
             
-            if (_isOfflineMode)
-            {
-                _isOfflineMode = false;
-                _logger.LogInformation("Database connection restored, switching back to online mode");
-                
-                _ = Task.Run(async () => await TryRecoverOfflineDataAsync());
-            }
-            
             return result;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Database unavailable for snapshot creation, switching to offline mode");
             _isOfflineMode = true;
+            _lastDbCheckTime = DateTime.UtcNow;
             
             var localSnapshotId = _offlineStorage.GetNextLocalSnapshotId();
             

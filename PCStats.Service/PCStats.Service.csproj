@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UserSecretsId>dotnet-PCStatsService-9e28f258-750b-4290-a95c-d666719db273</UserSecretsId>
+    <AssemblyName>Slov89.PCStats.Service</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
